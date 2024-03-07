@@ -5,6 +5,7 @@ using UnityEditor.EditorTools;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.Video;
+using System.Linq;
 
 public enum TransitionType
 {
@@ -98,10 +99,16 @@ public class Video360 : MonoBehaviour
     private VideoPlayer videoPlayer2;
 
     [SerializeField, Tooltip("If true, the videos will start playing as soon as the scene starts.")]
-    private bool playOnAwake = false;
+    private bool playOnAwake = true;
 
     [SerializeField, Tooltip("If true, the videos will loop from the start after they have all been played.")]
-    private bool loop = true;
+    private bool loop = false;
+    [SerializeField, Tooltip("If true, all GameObjects (besides the ones in the blacklist) in the scene will be set to inactive when the video starts playing.")]
+    private bool setGameObjectsInactive = true;
+    [SerializeField, Tooltip("The GameObjects to exclude from the setGameObjectsInactive setting. Their children will also be excluded.")]
+    private GameObject[] blackListedGameObject;
+    [SerializeField, Tooltip("The tags to exclude from the setGameObjectsInactive setting. Their children will also be excluded.")]
+    private string[] blacklistedTags;
 
     [Header("Render Texture Settings (Optional)")]
     [SerializeField, Tooltip(
@@ -133,6 +140,7 @@ public class Video360 : MonoBehaviour
     private VideoPlayer curVideoPlayer;
     private Material curSkyboxMaterial;
     private Material originalSkyboxMaterial;
+    private List<GameObject> allActiveGameObjects;
 
     private Material InitializeSkyboxMaterial()
     {
@@ -186,6 +194,42 @@ public class Video360 : MonoBehaviour
             videoClip.endTimeSecond = (float)videoClip.videoClip.length;
     }
 
+    private bool IsChildOfAny(Transform child, GameObject[] parents)
+    {
+        foreach (GameObject parent in parents)
+        {
+            if (child.IsChildOf(parent.transform))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void DeactivateGameObjects()
+    {
+        // Set all GameObjects that are currently active to inactive, and store them in the allActiveGameObjects list.
+        allGameObjects = UnityEngine.Object.FindObjectsOfType<GameObject>();
+        foreach (GameObject go in allGameObjects)
+        {
+            // Check if the GameObject is active, not in the blacklisted GameObjects or tags, isnt the current GameObject, and isnt a child of any blacklisted GameObjects.
+            if (go.activeInHierarchy && !blackListedGameObject.Contains(go) && !blacklistedTags.Contains(go.tag) && go != this.gameObject && !IsChildOfAny(go.transform, blackListedGameObject))
+            {
+                allActiveGameObjects.Add(go);
+                go.SetActive(false);
+            }
+        }
+    }
+
+    private void ReactivateGameObjects()
+    {
+        // Set all GameObjects that were active before the videos started playing back to active.
+        foreach (GameObject go in allActiveGameObjects)
+        {
+            go.SetActive(true);
+        }
+    }
+
     /// <summary>
     ///     Plays all the videos from the start index to the end index, and loops them if loop is true.
     /// </summary>
@@ -196,6 +240,7 @@ public class Video360 : MonoBehaviour
         bool videoDone = true;
         VideoPlayer prevVideoPlayer = null;
         VideoClipWithTransition prevVideo = null;
+        GameObject[] allGameObjects = null;
 
         // Set up an event to trigger when the video finishes.
         videoPlayer1.loopPointReached += vp =>
@@ -207,16 +252,20 @@ public class Video360 : MonoBehaviour
             videoDone = true;
         };
 
+        // Set all GameObjects that are currently active to inactive, and store them in the allActiveGameObjects list.
+        if (setGameObjectsInactive)
+            DeactivateGameObjects();
+
         // Play the videos in a loop if loop is true else play them once.
         do
         {
             // Play all videos from the start index to the end index.
             for (int i = startIndex; i < endIndex; i++)
             {
-                VideoClipWithTransition currentVideo = videoClips[i];
+                VideoClipWithTransition curVideo = videoClips[i];
 
                 // Check if the current video is valid.
-                if (currentVideo.videoClip == null)
+                if (curVideo.videoClip == null)
                 {
                     Debug.LogError(
                         "Can't play 360 video. No video clip is assigned to the Video360 script."
@@ -224,18 +273,18 @@ public class Video360 : MonoBehaviour
                     yield break;
                 }
                 if (
-                    currentVideo.startTimeSecond < 0
-                    || currentVideo.startTimeSecond > currentVideo.videoClip.length
+                    curVideo.startTimeSecond < 0
+                    || curVideo.startTimeSecond > curVideo.videoClip.length
                 )
                 {
                     Debug.LogError("Can't play 360 video. Start time is out of range.");
                     yield break;
                 }
                 if (
-                    currentVideo.endTimeSecond != -1
+                    curVideo.endTimeSecond != -1
                     && (
-                        currentVideo.endTimeSecond < 0
-                        || currentVideo.endTimeSecond > currentVideo.videoClip.length
+                        curVideo.endTimeSecond < 0
+                        || curVideo.endTimeSecond > curVideo.videoClip.length
                     )
                 )
                 {
@@ -245,13 +294,13 @@ public class Video360 : MonoBehaviour
 
 
                 // Create a RenderTexture for the current video.
-                RenderTexture curRenderTexture = InitializeRenderTexture(currentVideo.videoClip);
+                RenderTexture curRenderTexture = InitializeRenderTexture(curVideo.videoClip);
 
                 // Update the active video player and skybox material.
                 curSkyboxMaterial =
                     curVideoPlayer == videoPlayer1 ? skyboxMaterial1 : skyboxMaterial2;
                 curVideoPlayer = curVideoPlayer == videoPlayer1 ? videoPlayer2 : videoPlayer1;
-                UpdateActiveVideoPlayer(curVideoPlayer, currentVideo);
+                UpdateActiveVideoPlayer(curVideoPlayer, curVideo);
 
                 // Prepare the current video player to reduce lag between video transitions.
                 curVideoPlayer.Prepare();
@@ -284,11 +333,11 @@ public class Video360 : MonoBehaviour
                 // Play the current video and trigger the OnVideoStart event.
                 RenderSettings.skybox = curSkyboxMaterial;
                 curVideoPlayer.Play();
-                currentVideo.OnVideoStart?.Invoke();
+                curVideo.OnVideoStart?.Invoke();
 
                 // Update the previous video player and video.
                 prevVideoPlayer = curVideoPlayer;
-                prevVideo = currentVideo;
+                prevVideo = curVideo;
                 videoDone = false;
             }
         } while (loop);
@@ -306,6 +355,10 @@ public class Video360 : MonoBehaviour
 
         // Reset the skybox material to the original skybox material.
         RenderSettings.skybox = originalSkyboxMaterial;
+
+        // Set all GameObjects that were active before the videos started playing back to active.
+        if (setGameObjectsInactive)
+            ReactivateGameObjects();
     }
 
     /// <summary>
@@ -416,6 +469,12 @@ public class Video360 : MonoBehaviour
         // Store the original skybox material.
         originalSkyboxMaterial = RenderSettings.skybox;
 
+        // if setGameObjectsInactive is true, initialize the allActiveGameObjects list.
+        if (setGameObjectsInactive)
+        {
+            allActiveGameObjects = new List<GameObject>();
+        }
+
         // Start playing the videos if playOnAwake is true.
         if (playOnAwake)
         {
@@ -455,7 +514,15 @@ public class Video360 : MonoBehaviour
             curVideoPlayer.targetTexture.Release();
             curVideoPlayer.Stop();
             RenderSettings.skybox = originalSkyboxMaterial;
+
+            // Set all GameObjects that were active before the video started playing back to active.
+            if (setGameObjectsInactive)
+                ReactivateGameObjects();
         };
+
+        // Set all GameObjects that are currently active to inactive, and store them in the allActiveGameObjects list.
+        if (setGameObjectsInactive)
+            DeactivateGameObjects();
 
         curVideoPlayer.Play();
     }
