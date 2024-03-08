@@ -92,21 +92,18 @@ public class Video360 : MonoBehaviour
         "Two VideoPlayers are required to play 360 videos smoothly, because you need to be able prepare one video in a videoplayer while the other videoplayer is playing a video so that there is no lag between video transitions. If no VideoPlayers are assigned in the Inspector, the Video360 script will automatically assign the first two VideoPlayers found on the GameObject to videoPlayer1 and videoPlayer2."
     )]
     private VideoPlayer videoPlayer1;
-
     [SerializeField, Tooltip(
         "Two VideoPlayers are required to play 360 videos smoothly, because you need to be able prepare one video in a videoplayer while the other videoplayer is playing a video so that there is no lag between video transitions. If no VideoPlayers are assigned in the Inspector, the Video360 script will automatically assign the first two VideoPlayers found on the GameObject to videoPlayer1 and videoPlayer2."
     )]
     private VideoPlayer videoPlayer2;
-
     [SerializeField, Tooltip("If true, the videos will start playing as soon as the scene starts.")]
     private bool playOnAwake = true;
-
     [SerializeField, Tooltip("If true, the videos will loop from the start after they have all been played.")]
     private bool loop = false;
     [SerializeField, Tooltip("If true, all GameObjects (besides the ones in the blacklist) in the scene will be set to inactive when the video starts playing.")]
     private bool setGameObjectsInactive = true;
     [SerializeField, Tooltip("The GameObjects to exclude from the setGameObjectsInactive setting. Their children will also be excluded.")]
-    private GameObject[] blackListedGameObject;
+    private GameObject[] blackListedGameObjects;
     [SerializeField, Tooltip("The tags to exclude from the setGameObjectsInactive setting. Their children will also be excluded.")]
     private string[] blacklistedTags;
 
@@ -121,7 +118,6 @@ public class Video360 : MonoBehaviour
         "The first skybox material to use for displaying the 360 video. If no material is assigned, a new material will be created with the 'Skybox/Panoramic' shader."
     )]
     private Material skyboxMaterial1;
-
     [SerializeField, Tooltip(
         "The second skybox material to use for displaying the 360 video. If no material is assigned, a new material will be created with the 'Skybox/Panoramic' shader."
     )]
@@ -194,26 +190,39 @@ public class Video360 : MonoBehaviour
             videoClip.endTimeSecond = (float)videoClip.videoClip.length;
     }
 
-    private bool IsChildOfAny(Transform child, GameObject[] parents)
+    private bool IsChildOfAnyBlacklistedObjects(Transform child)
     {
-        foreach (GameObject parent in parents)
+        // Check if the child is a child of any of the blacklisted GameObjects.
+        foreach (GameObject parent in blackListedGameObjects)
         {
             if (child.IsChildOf(parent.transform))
             {
                 return true;
             }
         }
+
+        // Check if the child is a child of any GameObjects with blacklisted tags.
+        Transform current = child;
+        while (current != null)
+        {
+            if (blacklistedTags.Contains(current.tag))
+            {
+                return true;
+            }
+            current = current.parent;
+        }
+        
         return false;
     }
 
     private void DeactivateGameObjects()
     {
         // Set all GameObjects that are currently active to inactive, and store them in the allActiveGameObjects list.
-        allGameObjects = UnityEngine.Object.FindObjectsOfType<GameObject>();
+        GameObject[] allGameObjects = UnityEngine.Object.FindObjectsOfType<GameObject>();
         foreach (GameObject go in allGameObjects)
         {
             // Check if the GameObject is active, not in the blacklisted GameObjects or tags, isnt the current GameObject, and isnt a child of any blacklisted GameObjects.
-            if (go.activeInHierarchy && !blackListedGameObject.Contains(go) && !blacklistedTags.Contains(go.tag) && go != this.gameObject && !IsChildOfAny(go.transform, blackListedGameObject))
+            if (go.activeInHierarchy && !blackListedGameObjects.Contains(go) && !blacklistedTags.Contains(go.tag) && go != this.gameObject && !IsChildOfAnyBlacklistedObjects(go.transform))
             {
                 allActiveGameObjects.Add(go);
                 go.SetActive(false);
@@ -240,7 +249,6 @@ public class Video360 : MonoBehaviour
         bool videoDone = true;
         VideoPlayer prevVideoPlayer = null;
         VideoClipWithTransition prevVideo = null;
-        GameObject[] allGameObjects = null;
 
         // Set up an event to trigger when the video finishes.
         videoPlayer1.loopPointReached += vp =>
