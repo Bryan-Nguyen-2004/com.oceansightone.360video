@@ -1,4 +1,4 @@
 {
     "name": "BeeAssembly",
-    "references": []
+    "references": ["EasyTransitionAssembly"]
 }

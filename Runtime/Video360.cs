@@ -1,18 +1,21 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using CodiceApp;
+using EasyTransition;
 using UnityEditor.EditorTools;
 using UnityEngine;
 using UnityEngine.Events;
+using UnityEngine.UI;
 using UnityEngine.Video;
-using System.Linq;
 
-public enum TransitionType
-{
-    Cut,
-    Fade,
-    Dissolve
-}
+// public enum TransitionType
+// {
+//     Cut,
+//     Fade,
+//     Dissolve,
+//     Wipe
+// }
 
 public enum AntiAliasingLevel
 {
@@ -37,25 +40,29 @@ public class VideoClipWithTransition : ISerializationCallbackReceiver
 
     [Tooltip("The volume of the video. Set to 0 to mute the video.")]
     [Range(0f, 100f)]
-    public float volume = 100f;
+    public float volume;
 
-    [Tooltip("The type of transition to use when transitioning to the next video.")]
-    public TransitionType transitionType;
+    // [Tooltip("The type of transition to use when transitioning to the next video.")]
+    // public TransitionType transitionType;
 
-    [Tooltip("The time in seconds it takes to transition to the next video.")]
-    public float transitionTime;
+    // [Tooltip("The time in seconds it takes to transition to the next video.")]
+    // public float transitionTime;
+    [Tooltip(
+        "The transition settings to use when transitioning to the next video. If no transition is assigned, the video will cut to the next video."
+    )]
+    public TransitionSettings transition;
 
     [Tooltip("The time in seconds to start playing the video from.")]
-    public float startTimeSecond = 0f;
+    public float startTimeSecond;
 
     [Tooltip(
         "The time in seconds to stop playing the video at. Set to -1 to play the video to the end."
     )]
-    public float endTimeSecond = -1f;
+    public float endTimeSecond;
 
     [Tooltip("The speed at which the video will be played.")]
     [Range(0.1f, 10f)]
-    public float playbackSpeed = 1f;
+    public float playbackSpeed;
 
     [Tooltip("The events to trigger when the video starts playing.")]
     public UnityEvent OnVideoStart;
@@ -65,14 +72,17 @@ public class VideoClipWithTransition : ISerializationCallbackReceiver
 
     [Tooltip("The events to trigger when the video finishes playing.")]
     public UnityEvent OnVideoEnd;
-    [SerializeField, HideInInspector] private bool _serialized = false;
- 
-    public void OnBeforeSerialize() {}
-    
+
+    [SerializeField, HideInInspector]
+    private bool _serialized = false;
+
+    public void OnBeforeSerialize() { }
+
     // Set default values for the video clip (this is the only way I could find to set default values for serializable classes)
     public void OnAfterDeserialize()
     {
-        if (_serialized == false) {
+        if (_serialized == false)
+        {
             _serialized = true;
             playbackSpeed = 1.0f;
             endTimeSecond = -1.0f;
@@ -81,62 +91,138 @@ public class VideoClipWithTransition : ISerializationCallbackReceiver
     }
 }
 
-[RequireComponent(typeof(VideoPlayer)), DisallowMultipleComponent]
+[
+    RequireComponent(typeof(VideoPlayer)),
+    RequireComponent(typeof(TransitionManager)),
+    DisallowMultipleComponent
+]
 public class Video360 : MonoBehaviour
 {
     [Tooltip("The list of 360 video clips to play.")]
     public List<VideoClipWithTransition> videoClips = new List<VideoClipWithTransition>();
+    [SerializeField, Tooltip("The transition settings to use when transitioning to the first video. If no transition is assigned, it will cut to the first video.")]
+    private TransitionSettings initialTransition;
 
     [Header("Video Player Settings")]
-    [SerializeField, Tooltip(
-        "Two VideoPlayers are required to play 360 videos smoothly, because you need to be able prepare one video in a videoplayer while the other videoplayer is playing a video so that there is no lag between video transitions. If no VideoPlayers are assigned in the Inspector, the Video360 script will automatically assign the first two VideoPlayers found on the GameObject to videoPlayer1 and videoPlayer2."
-    )]
+    [
+        SerializeField,
+        Tooltip(
+            "Two VideoPlayers are required to play 360 videos smoothly, because you need to be able prepare one video in a videoplayer while the other videoplayer is playing a video so that there is no lag between video transitions. If no VideoPlayers are assigned in the Inspector, the Video360 script will automatically assign the first two VideoPlayers found on the GameObject to videoPlayer1 and videoPlayer2."
+        )
+    ]
     private VideoPlayer videoPlayer1;
-    [SerializeField, Tooltip(
-        "Two VideoPlayers are required to play 360 videos smoothly, because you need to be able prepare one video in a videoplayer while the other videoplayer is playing a video so that there is no lag between video transitions. If no VideoPlayers are assigned in the Inspector, the Video360 script will automatically assign the first two VideoPlayers found on the GameObject to videoPlayer1 and videoPlayer2."
-    )]
+
+    [
+        SerializeField,
+        Tooltip(
+            "Two VideoPlayers are required to play 360 videos smoothly, because you need to be able prepare one video in a videoplayer while the other videoplayer is playing a video so that there is no lag between video transitions. If no VideoPlayers are assigned in the Inspector, the Video360 script will automatically assign the first two VideoPlayers found on the GameObject to videoPlayer1 and videoPlayer2."
+        )
+    ]
     private VideoPlayer videoPlayer2;
     [SerializeField, Tooltip("If true, the videos will start playing as soon as the scene starts.")]
     private bool playOnAwake = true;
-    [SerializeField, Tooltip("If true, the videos will loop from the start after they have all been played.")]
+
+    [
+        SerializeField,
+        Tooltip("If true, the videos will loop from the start after they have all been played.")
+    ]
     private bool loop = false;
-    [SerializeField, Tooltip("If true, all GameObjects (besides the ones in the blacklist) in the scene will be set to inactive when the video starts playing.")]
+
+    [
+        SerializeField,
+        Tooltip(
+            "If true, all GameObjects (besides the ones in the blacklist) in the scene will be set to inactive when the video starts playing."
+        )
+    ]
     private bool setGameObjectsInactive = true;
-    [SerializeField, Tooltip("The GameObjects to exclude from the setGameObjectsInactive setting. Their children will also be excluded.")]
+
+    [
+        SerializeField,
+        Tooltip(
+            "The GameObjects to exclude from the setGameObjectsInactive setting. Their children will also be excluded."
+        )
+    ]
     private GameObject[] blackListedGameObjects;
-    [SerializeField, Tooltip("The tags to exclude from the setGameObjectsInactive setting. Their children will also be excluded.")]
+
+    [
+        SerializeField,
+        Tooltip(
+            "The tags to exclude from the setGameObjectsInactive setting. Their children will also be excluded."
+        )
+    ]
     private string[] blacklistedTags;
 
     [Header("Render Texture Settings (Optional)")]
-    [SerializeField, Tooltip(
-        "The level of anti-aliasing to apply to the 360 video. Higher levels of anti-aliasing will result in better quality, but will also require more processing power."
-    )]
+    [
+        SerializeField,
+        Tooltip(
+            "The level of anti-aliasing to apply to the 360 video. Higher levels of anti-aliasing will result in better quality, but will also require more processing power."
+        )
+    ]
     private AntiAliasingLevel antiAliasingLevel = AntiAliasingLevel.Off;
 
     [Header("Skybox Material Settings (Optional)")]
-    [SerializeField, Tooltip(
-        "The first skybox material to use for displaying the 360 video. If no material is assigned, a new material will be created with the 'Skybox/Panoramic' shader."
-    )]
+    [
+        SerializeField,
+        Tooltip(
+            "The first skybox material to use for displaying the 360 video. If no material is assigned, a new material will be created with the 'Skybox/Panoramic' shader."
+        )
+    ]
     private Material skyboxMaterial1;
-    [SerializeField, Tooltip(
-        "The second skybox material to use for displaying the 360 video. If no material is assigned, a new material will be created with the 'Skybox/Panoramic' shader."
-    )]
+
+    [
+        SerializeField,
+        Tooltip(
+            "The second skybox material to use for displaying the 360 video. If no material is assigned, a new material will be created with the 'Skybox/Panoramic' shader."
+        )
+    ]
     private Material skyboxMaterial2;
-    [SerializeField, Tooltip("The color to tint the skybox to. Unity adds this color to the Textures to change their appearance without altering the base Texture files.")]
+
+    [
+        SerializeField,
+        Tooltip(
+            "The color to tint the skybox to. Unity adds this color to the Textures to change their appearance without altering the base Texture files."
+        )
+    ]
     private Color tintColor = Color.white;
-    [SerializeField, Range(0,8), Tooltip("Adjusts the skybox’s exposure. This allows you to correct tonal values in the skybox Textures. Larger values produce a more exposed, seemingly brighter, skybox. Smaller values produce a less exposed, seemingly darker, skybox.")]
+
+    [
+        SerializeField,
+        Range(0, 8),
+        Tooltip(
+            "Adjusts the skybox’s exposure. This allows you to correct tonal values in the skybox Textures. Larger values produce a more exposed, seemingly brighter, skybox. Smaller values produce a less exposed, seemingly darker, skybox."
+        )
+    ]
     private float exposure = 1f;
-    [SerializeField, Range(0,360), Tooltip("The rotation of the skybox around the positive y-axis. This changes the orientation of your skybox and is useful if you want a specific section of the skybox to be behind a particular part of your Scene.")]
+
+    [
+        SerializeField,
+        Range(0, 360),
+        Tooltip(
+            "The rotation of the skybox around the positive y-axis. This changes the orientation of your skybox and is useful if you want a specific section of the skybox to be behind a particular part of your Scene."
+        )
+    ]
     private float rotation = 0f;
+
     [SerializeField, Tooltip("Layout of 3D content in the source.")]
     private Layout3D layout3D = Layout3D.None;
-    [SerializeField, Tooltip("Specifies whether the lightmapper accounts for both sides of the geometry when it calculates Global Illumination. When true, if you use the Progressive Lightmapper, back faces bounce light using the same emission and albedo as front faces.")]
+
+    [
+        SerializeField,
+        Tooltip(
+            "Specifies whether the lightmapper accounts for both sides of the geometry when it calculates Global Illumination. When true, if you use the Progressive Lightmapper, back faces bounce light using the same emission and albedo as front faces."
+        )
+    ]
     private bool doubleSidedGlobalIllumination = false;
 
     private VideoPlayer curVideoPlayer;
     private Material curSkyboxMaterial;
     private Material originalSkyboxMaterial;
     private List<GameObject> allActiveGameObjects;
+    private Image fadeOverlay;
+    private TransitionManager transitionManager;
+    private bool transitionPlaying = false;
+    private bool transitionHalfway = true;
 
     private Material InitializeSkyboxMaterial()
     {
@@ -148,7 +234,10 @@ public class Video360 : MonoBehaviour
         //skyboxMaterial.SetFloat("_Exposure", exposure);
         skyboxMaterial.SetFloat("_Rotation", rotation);
         skyboxMaterial.EnableKeyword("_DOUBLE_SIDED_GLOBAL_ILLUMINATION");
-        skyboxMaterial.SetFloat("_DOUBLE_SIDED_GLOBAL_ILLUMINATION", doubleSidedGlobalIllumination ? 1 : 0);
+        skyboxMaterial.SetFloat(
+            "_DOUBLE_SIDED_GLOBAL_ILLUMINATION",
+            doubleSidedGlobalIllumination ? 1 : 0
+        );
 
         return skyboxMaterial;
     }
@@ -175,6 +264,34 @@ public class Video360 : MonoBehaviour
         curRenderTexture.Create();
 
         return curRenderTexture;
+    }
+
+    private void InitializeFadeOverlay()
+    {
+        // Create a new Canvas GameObject
+        GameObject canvasGameObject = new GameObject("Canvas");
+        Canvas canvas = canvasGameObject.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 999;
+        canvasGameObject.AddComponent<CanvasScaler>();
+        canvasGameObject.AddComponent<GraphicRaycaster>();
+
+        // Add the canvas to the blacklisted GameObjects
+        blackListedGameObjects = blackListedGameObjects.Append(canvasGameObject).ToArray();
+
+        // Create a new Image GameObject as a child of the Canvas
+        GameObject imageGameObject = new GameObject("FadeOverlay");
+        imageGameObject.transform.SetParent(canvasGameObject.transform);
+        fadeOverlay = imageGameObject.AddComponent<Image>();
+
+        // Set the Image to cover the whole screen
+        fadeOverlay.rectTransform.anchorMin = new Vector2(0, 0);
+        fadeOverlay.rectTransform.anchorMax = new Vector2(1, 1);
+        fadeOverlay.rectTransform.anchoredPosition = new Vector2(0, 0);
+        fadeOverlay.rectTransform.sizeDelta = new Vector2(0, 0);
+
+        // Set the Image color to black and fully transparent
+        fadeOverlay.color = new Color(0, 0, 0, 0);
     }
 
     private void UpdateActiveVideoPlayer(VideoPlayer videoPlayer, VideoClipWithTransition videoClip)
@@ -211,7 +328,7 @@ public class Video360 : MonoBehaviour
             }
             current = current.parent;
         }
-        
+
         return false;
     }
 
@@ -222,7 +339,13 @@ public class Video360 : MonoBehaviour
         foreach (GameObject go in allGameObjects)
         {
             // Check if the GameObject is active, not in the blacklisted GameObjects or tags, isnt the current GameObject, and isnt a child of any blacklisted GameObjects.
-            if (go.activeInHierarchy && !blackListedGameObjects.Contains(go) && !blacklistedTags.Contains(go.tag) && go != this.gameObject && !IsChildOfAnyBlacklistedObjects(go.transform))
+            if (
+                go.activeInHierarchy
+                && !blackListedGameObjects.Contains(go)
+                && !blacklistedTags.Contains(go.tag)
+                && go != this.gameObject
+                && !IsChildOfAnyBlacklistedObjects(go.transform)
+            )
             {
                 allActiveGameObjects.Add(go);
                 go.SetActive(false);
@@ -264,6 +387,11 @@ public class Video360 : MonoBehaviour
         if (setGameObjectsInactive)
             DeactivateGameObjects();
 
+        if (initialTransition != null)
+        {
+            TransitionManager.Instance().Transition(initialTransition, 0);
+        }
+
         // Play the videos in a loop if loop is true else play them once.
         do
         {
@@ -300,7 +428,6 @@ public class Video360 : MonoBehaviour
                     yield break;
                 }
 
-
                 // Create a RenderTexture for the current video.
                 RenderTexture curRenderTexture = InitializeRenderTexture(curVideo.videoClip);
 
@@ -317,11 +444,22 @@ public class Video360 : MonoBehaviour
                 curVideoPlayer.targetTexture = curRenderTexture;
                 curSkyboxMaterial.SetTexture("_MainTex", curRenderTexture);
 
-                // Wait for the previous video to finish playing.
+                // Wait for the previous video to finish playing and transition to hit the halfway point.
                 if (prevVideoPlayer != null)
                 {
                     while (!videoDone && prevVideoPlayer.time < prevVideo.endTimeSecond)
                     {
+                        // Start the transition to the next video when the previous video is about to end.
+                        if (
+                            prevVideo.transition != null
+                            && prevVideoPlayer.time
+                                >= prevVideo.endTimeSecond - prevVideo.transition.transitionTime
+                            && !transitionPlaying
+                        )
+                        {
+                            TransitionManager.Instance().Transition(prevVideo.transition, 0);
+                        }
+
                         // Trigger the OnVideoStay event while the video is playing.
                         prevVideo.OnVideoStay?.Invoke();
                         yield return null;
@@ -332,9 +470,13 @@ public class Video360 : MonoBehaviour
                     prevVideo.OnVideoEnd?.Invoke();
                 }
 
-                // Wait for the current video to be prepared before playing it.
-                while (!curVideoPlayer.isPrepared)
+                // Wait for the current video to be prepared and the transition to hit the halfway point.
+                while (
+                    !curVideoPlayer.isPrepared
+                    || (prevVideo?.transition != null && !transitionHalfway)
+                )
                 {
+                    Debug.Log(curVideoPlayer.time);
                     yield return null;
                 }
 
@@ -350,9 +492,22 @@ public class Video360 : MonoBehaviour
             }
         } while (loop);
 
-        // Wait for the last video to finish playing.
-        while (!videoDone && prevVideoPlayer.time < prevVideo.endTimeSecond)
+        // Wait for the last video to finish playing and transition to hit the halfway point.
+        while (!videoDone && prevVideoPlayer.time < prevVideo.endTimeSecond && !transitionHalfway)
         {
+            // Start the ending transition video is about to end.
+            if (
+                prevVideo.transition != null
+                && prevVideoPlayer.time
+                    >= prevVideo.endTimeSecond - prevVideo.transition.transitionTime
+                && !transitionPlaying
+            )
+            {
+                TransitionManager.Instance().Transition(prevVideo.transition, 0);
+            }
+
+            // trigger the OnVideoStay event while the video is playing.
+            prevVideo.OnVideoStay?.Invoke();
             yield return null;
         }
 
@@ -410,6 +565,7 @@ public class Video360 : MonoBehaviour
         // Start the PlayAllVideos coroutine.
         StartCoroutine(Play360Videos(startIndex, endIndex));
     }
+
     private void Awake()
     {
         // Get the VideoPlayers if they are not assigned in the Inspector.
@@ -482,6 +638,32 @@ public class Video360 : MonoBehaviour
         {
             allActiveGameObjects = new List<GameObject>();
         }
+
+        // Initialize the fade overlay.
+        InitializeFadeOverlay();
+
+        // Get Transformation Manager
+        transitionManager = TransitionManager.Instance();
+        if (transitionManager == null)
+        {
+            Debug.LogError("Transition Manager is not found.");
+            return;
+        }
+
+        // Set up events for the transition manager.
+        transitionManager.onTransitionBegin += () =>
+        {
+            transitionPlaying = true;
+        };
+        transitionManager.onTransitionEnd += () =>
+        {
+            transitionPlaying = false;
+            transitionHalfway = false;
+        };
+        transitionManager.onTransitionCutPointReached += () =>
+        {
+            transitionHalfway = true;
+        };
 
         // Start playing the videos if playOnAwake is true.
         if (playOnAwake)
@@ -596,4 +778,22 @@ public class Video360 : MonoBehaviour
 
         curVideoPlayer.Play();
     }
+
+    // private IEnumerator FadeToBlackCoroutine(float transitionTime)
+    // {
+    //     // Fade in
+    //     for (float t = 0; t <= transitionTime; t += Time.deltaTime)
+    //     {
+    //         Debug.Log($"Fading to black {fadeOverlay.color}");
+    //         fadeOverlay.color = new Color(0, 0, 0, t / transitionTime);
+    //         yield return null;
+    //     }
+
+    //     // Fade out
+    //     for (float t = transitionTime; t >= 0; t -= Time.deltaTime)
+    //     {
+    //         fadeOverlay.color = new Color(0, 0, 0, t / transitionTime);
+    //         yield return null;
+    //     }
+    // }
 }
