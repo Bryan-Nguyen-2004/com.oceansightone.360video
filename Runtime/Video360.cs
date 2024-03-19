@@ -9,14 +9,6 @@ using UnityEngine.Events;
 using UnityEngine.UI;
 using UnityEngine.Video;
 
-// public enum TransitionType
-// {
-//     Cut,
-//     Fade,
-//     Dissolve,
-//     Wipe
-// }
-
 public enum AntiAliasingLevel
 {
     Off = 1,
@@ -42,11 +34,6 @@ public class VideoClipWithTransition : ISerializationCallbackReceiver
     [Range(0f, 100f)]
     public float volume;
 
-    // [Tooltip("The type of transition to use when transitioning to the next video.")]
-    // public TransitionType transitionType;
-
-    // [Tooltip("The time in seconds it takes to transition to the next video.")]
-    // public float transitionTime;
     [Tooltip(
         "The transition settings to use when transitioning to the next video. If no transition is assigned, the video will cut to the next video."
     )]
@@ -222,7 +209,7 @@ public class Video360 : MonoBehaviour
     private Image fadeOverlay;
     private TransitionManager transitionManager;
     private bool transitionPlaying = false;
-    private bool transitionHalfway = true;
+    private bool transitionHalfway = false;
 
     private Material InitializeSkyboxMaterial()
     {
@@ -345,6 +332,7 @@ public class Video360 : MonoBehaviour
                 && !blacklistedTags.Contains(go.tag)
                 && go != this.gameObject
                 && !IsChildOfAnyBlacklistedObjects(go.transform)
+                && go.scene.name != "DontDestroyOnLoad" // This is to prevent the fade overlay from being set to inactive.
             )
             {
                 allActiveGameObjects.Add(go);
@@ -370,6 +358,7 @@ public class Video360 : MonoBehaviour
     private IEnumerator Play360Videos(int startIndex, int endIndex)
     {
         bool videoDone = true;
+        bool objectsDeactivated = false;
         VideoPlayer prevVideoPlayer = null;
         VideoClipWithTransition prevVideo = null;
 
@@ -383,14 +372,11 @@ public class Video360 : MonoBehaviour
             videoDone = true;
         };
 
-        // Set all GameObjects that are currently active to inactive, and store them in the allActiveGameObjects list.
-        if (setGameObjectsInactive)
-            DeactivateGameObjects();
-
+        // Start the initial transition if one is assigned.
         if (initialTransition != null)
-        {
             TransitionManager.Instance().Transition(initialTransition, 0);
-        }
+        else
+            transitionHalfway = true;
 
         // Play the videos in a loop if loop is true else play them once.
         do
@@ -459,6 +445,8 @@ public class Video360 : MonoBehaviour
                         {
                             TransitionManager.Instance().Transition(prevVideo.transition, 0);
                         }
+                        else
+                            transitionHalfway = true;
 
                         // Trigger the OnVideoStay event while the video is playing.
                         prevVideo.OnVideoStay?.Invoke();
@@ -473,12 +461,21 @@ public class Video360 : MonoBehaviour
                 // Wait for the current video to be prepared and the transition to hit the halfway point.
                 while (
                     !curVideoPlayer.isPrepared
-                    || (prevVideo?.transition != null && !transitionHalfway)
+                    || !transitionHalfway
                 )
                 {
-                    Debug.Log(curVideoPlayer.time);
+                    Debug.Log($"Waiting for video to be prepared {transitionHalfway}");
                     yield return null;
                 }
+
+                // Set all GameObjects that are currently active to inactive, and store them in the allActiveGameObjects list.
+                if (!objectsDeactivated && setGameObjectsInactive)
+                {
+                    DeactivateGameObjects();
+                    objectsDeactivated = true;
+                }
+
+                Debug.Log("Playing video");
 
                 // Play the current video and trigger the OnVideoStart event.
                 RenderSettings.skybox = curSkyboxMaterial;
@@ -505,6 +502,8 @@ public class Video360 : MonoBehaviour
             {
                 TransitionManager.Instance().Transition(prevVideo.transition, 0);
             }
+            else
+                transitionHalfway = true;
 
             // trigger the OnVideoStay event while the video is playing.
             prevVideo.OnVideoStay?.Invoke();
@@ -529,7 +528,7 @@ public class Video360 : MonoBehaviour
     /// </summary>
     /// <param name="startIndex">The index of the first video to play (inclusive).</param>
     /// <param name="endIndex">The index of the last video to play (exclusive).</param>
-    public void InitializePlayback(int startIndex = 0, int endIndex = -1)
+    public void StartPlayback(int startIndex = 0, int endIndex = -1)
     {
         // Validate video clips and start/end indices.
         if (videoClips.Count == 0)
@@ -642,6 +641,15 @@ public class Video360 : MonoBehaviour
         // Initialize the fade overlay.
         InitializeFadeOverlay();
 
+        // Start playing the videos if playOnAwake is true.
+        if (playOnAwake)
+        {
+            StartPlayback();
+        }
+    }
+
+    public void Start()
+    {
         // Get Transformation Manager
         transitionManager = TransitionManager.Instance();
         if (transitionManager == null)
@@ -663,13 +671,8 @@ public class Video360 : MonoBehaviour
         transitionManager.onTransitionCutPointReached += () =>
         {
             transitionHalfway = true;
+            Debug.Log("Transition halfway");
         };
-
-        // Start playing the videos if playOnAwake is true.
-        if (playOnAwake)
-        {
-            InitializePlayback();
-        }
     }
 
     /// <summary>
@@ -779,21 +782,11 @@ public class Video360 : MonoBehaviour
         curVideoPlayer.Play();
     }
 
-    // private IEnumerator FadeToBlackCoroutine(float transitionTime)
-    // {
-    //     // Fade in
-    //     for (float t = 0; t <= transitionTime; t += Time.deltaTime)
-    //     {
-    //         Debug.Log($"Fading to black {fadeOverlay.color}");
-    //         fadeOverlay.color = new Color(0, 0, 0, t / transitionTime);
-    //         yield return null;
-    //     }
-
-    //     // Fade out
-    //     for (float t = transitionTime; t >= 0; t -= Time.deltaTime)
-    //     {
-    //         fadeOverlay.color = new Color(0, 0, 0, t / transitionTime);
-    //         yield return null;
-    //     }
-    // }
+    /// <summary>
+    ///     Calls the StartPlayback method with default parameters (used for buttons, because buttons can only have one parameter).
+    /// </summary>
+    public void StartPlaybackFromButton()
+    {
+        StartPlayback(0, -1); // replace with your desired start and end indices
+    }
 }
