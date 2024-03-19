@@ -87,7 +87,13 @@ public class Video360 : MonoBehaviour
 {
     [Tooltip("The list of 360 video clips to play.")]
     public List<VideoClipWithTransition> videoClips = new List<VideoClipWithTransition>();
-    [SerializeField, Tooltip("The transition settings to use when transitioning to the first video. If no transition is assigned, it will cut to the first video.")]
+
+    [
+        SerializeField,
+        Tooltip(
+            "The transition settings to use when transitioning to the first video. If no transition is assigned, it will cut to the first video."
+        )
+    ]
     private TransitionSettings initialTransition;
 
     [Header("Video Player Settings")]
@@ -106,6 +112,7 @@ public class Video360 : MonoBehaviour
         )
     ]
     private VideoPlayer videoPlayer2;
+
     [SerializeField, Tooltip("If true, the videos will start playing as soon as the scene starts.")]
     private bool playOnAwake = true;
 
@@ -203,6 +210,7 @@ public class Video360 : MonoBehaviour
     private bool doubleSidedGlobalIllumination = false;
 
     private VideoPlayer curVideoPlayer;
+    private VideoPlayer prevVideoPlayer = null;
     private Material curSkyboxMaterial;
     private Material originalSkyboxMaterial;
     private List<GameObject> allActiveGameObjects;
@@ -294,6 +302,22 @@ public class Video360 : MonoBehaviour
             videoClip.endTimeSecond = (float)videoClip.videoClip.length;
     }
 
+    private void CleanUpVideoPlayer(VideoPlayer videoPlayer)
+    {
+        // Release the video player's RenderTexture and stop the video.
+        videoPlayer.targetTexture.Release();
+        videoPlayer.Stop();
+
+        // Reset the skybox material to the original skybox material.
+        RenderSettings.skybox = originalSkyboxMaterial;
+
+        // Set all GameObjects that were active before the videos started playing back to active.
+        if (setGameObjectsInactive)
+            ReactivateGameObjects();
+
+        prevVideoPlayer = null;
+    }
+
     private bool IsChildOfAnyBlacklistedObjects(Transform child)
     {
         // Check if the child is a child of any of the blacklisted GameObjects.
@@ -359,7 +383,6 @@ public class Video360 : MonoBehaviour
     {
         bool videoDone = true;
         bool objectsDeactivated = false;
-        VideoPlayer prevVideoPlayer = null;
         VideoClipWithTransition prevVideo = null;
 
         // Set up an event to trigger when the video finishes.
@@ -459,10 +482,7 @@ public class Video360 : MonoBehaviour
                 }
 
                 // Wait for the current video to be prepared and the transition to hit the halfway point.
-                while (
-                    !curVideoPlayer.isPrepared
-                    || !transitionHalfway
-                )
+                while (!curVideoPlayer.isPrepared || !transitionHalfway)
                 {
                     Debug.Log($"Waiting for video to be prepared {transitionHalfway}");
                     yield return null;
@@ -510,17 +530,9 @@ public class Video360 : MonoBehaviour
             yield return null;
         }
 
-        // Release the last video player's RenderTexture and stop the video.
-        curVideoPlayer.targetTexture.Release();
-        curVideoPlayer.Stop();
+        // Release the previous video player's RenderTexture, stop the video, and trigger the OnVideoEnd event.
+        CleanUpVideoPlayer(prevVideoPlayer);
         prevVideo.OnVideoEnd?.Invoke();
-
-        // Reset the skybox material to the original skybox material.
-        RenderSettings.skybox = originalSkyboxMaterial;
-
-        // Set all GameObjects that were active before the videos started playing back to active.
-        if (setGameObjectsInactive)
-            ReactivateGameObjects();
     }
 
     /// <summary>
@@ -725,23 +737,20 @@ public class Video360 : MonoBehaviour
     /// </summary>
     public void StopVideo()
     {
-        if (curVideoPlayer.clip == null)
+        if (curVideoPlayer?.isPlaying == true)
         {
-            Debug.LogError("Can't stop 360 video. No video clip is assigned to the VideoPlayer.");
-            return;
+            CleanUpVideoPlayer(curVideoPlayer);
+            this.StopAllCoroutines();
         }
-        if (!curVideoPlayer.isPlaying)
+        else if (prevVideoPlayer?.isPlaying == true)
+        {
+            CleanUpVideoPlayer(prevVideoPlayer);
+            this.StopAllCoroutines();
+        }
+        else
         {
             Debug.LogError("Can't stop 360 video. No video is currently playing.");
-            return;
         }
-        loop = false;
-
-        // Stop the current video and clean up if one is playing.
-        if (curVideoPlayer.isPlaying)
-            curVideoPlayer.Stop();
-        curVideoPlayer.targetTexture.Release();
-        RenderSettings.skybox = originalSkyboxMaterial;
     }
 
     /// <summary>
@@ -749,18 +758,22 @@ public class Video360 : MonoBehaviour
     /// </summary>
     public void PauseVideo()
     {
-        if (curVideoPlayer.clip == null)
+        // There is a bug that can occur when pausing a video while an EasyTransition is playing, causing the transition to repeat again and again or the game just crashes.
+        // If you remove this line and add a Debug.Log() inside the transitionManager.onTransitionCutPointReached, you can see it get called repeatedly
+        if (transitionPlaying) return;
+
+        if (curVideoPlayer?.isPlaying == true)
         {
-            Debug.LogError("Can't pause 360 video. No video clip is assigned to the VideoPlayer.");
-            return;
+            curVideoPlayer.Pause();
         }
-        if (!curVideoPlayer.isPlaying)
+        else if (prevVideoPlayer?.isPlaying == true)
+        {
+            prevVideoPlayer.Pause();
+        }
+        else
         {
             Debug.LogError("Can't pause 360 video. No video is currently playing.");
-            return;
         }
-
-        curVideoPlayer.Pause();
     }
 
     /// <summary>
@@ -768,18 +781,18 @@ public class Video360 : MonoBehaviour
     /// </summary>
     public void ResumeVideo()
     {
-        if (curVideoPlayer.clip == null)
+        if (curVideoPlayer?.isPaused == true)
         {
-            Debug.LogError("Can't resume 360 video. No video clip is assigned to the VideoPlayer.");
-            return;
+            curVideoPlayer.Play();
         }
-        if (curVideoPlayer.isPlaying)
+        else if (prevVideoPlayer?.isPaused == true)
         {
-            Debug.LogError("Can't resume 360 video. A video is already playing.");
-            return;
+            prevVideoPlayer.Play();
         }
-
-        curVideoPlayer.Play();
+        else
+        {
+            Debug.LogError("Can't resume 360 video. No video is currently paused.");
+        }
     }
 
     /// <summary>
