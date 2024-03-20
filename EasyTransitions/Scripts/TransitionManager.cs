@@ -11,7 +11,7 @@ namespace EasyTransition
     {        
         [SerializeField] private GameObject transitionTemplate;
 
-        private bool runningTransition;
+        public bool runningTransition;
 
         public UnityAction onTransitionBegin;
         public UnityAction onTransitionCutPointReached;
@@ -41,7 +41,7 @@ namespace EasyTransition
         {
             if (transition == null || runningTransition)
             {
-                Debug.LogError("You have to assing a transition.");
+                Debug.LogError("You have to assign a transition.");
                 return;
             }
 
