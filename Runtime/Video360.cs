@@ -790,6 +790,9 @@ public class Video360 : MonoBehaviour
         }
     }
 
+    /// <summary>
+    ///    Plays the next 360 video in the videoClips list.
+    /// </summary>
     public void PlayNextVideo()
     {
         if (videoClips.Count == 0)
@@ -826,6 +829,9 @@ public class Video360 : MonoBehaviour
             StartPlayback();
     }
 
+    /// <summary>
+    ///     DOESN'T WORK YET
+    /// </summary>
     public IEnumerator PlayPrevVideo()
     {
         if (videoClips.Count == 0)
