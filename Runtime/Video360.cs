@@ -243,7 +243,7 @@ public class Video360 : MonoBehaviour
     ]
     private Selectable indexValueOrigin = null;
 
-    // Private variables
+    // -- Private Variables --
     private VideoPlayer curVideoPlayer = null;
     private VideoPlayer prevVideoPlayer = null;
     private Material curSkyboxMaterial = null;
@@ -845,7 +845,7 @@ public class Video360 : MonoBehaviour
     {
         if (transitionManager.runningTransition)
             return;
-        
+
         if (curVideoPlayer?.isPaused == true)
         {
             curVideoPlayer.Play();
@@ -889,7 +889,7 @@ public class Video360 : MonoBehaviour
             StartPlayback();
     }
 
-    private IEnumerator PlayVideoAtIndexCoroutine(int index)
+    private IEnumerator PlayVideoAtIndexCoroutine(int index = -1)
     {
         if (videoClips.Count == 0)
         {
@@ -913,7 +913,9 @@ public class Video360 : MonoBehaviour
         {
             if (indexValueOrigin == null)
             {
-                Debug.LogError("Can't play 360 video. No index is given and no indexValueOrigin is assigned.");
+                Debug.LogError(
+                    "Can't play 360 video. No index is given and no indexValueOrigin is assigned."
+                );
                 yield break;
             }
 
@@ -1010,5 +1012,13 @@ public class Video360 : MonoBehaviour
     public void PlayVideoAtIndex(int index = -1)
     {
         StartCoroutine(PlayVideoAtIndexCoroutine(index));
+    }
+
+    /// <summary>
+    ///   Plays the video at the index specified in the Index Value Origin (used for buttons, because buttons can only have fixed parameters).
+    /// </summary>
+    public void PlayVideoAtIndexFromButton()
+    {
+        StartCoroutine(PlayVideoAtIndexCoroutine());
     }
 }
