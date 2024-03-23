@@ -916,7 +916,7 @@ public class Video360 : MonoBehaviour
                 Debug.LogError("Can't play 360 video. No index is given and no indexValueOrigin is assigned.");
                 yield break;
             }
-            
+
             if (indexValueOrigin is TMP_Dropdown dropdown)
             {
                 index = dropdown.value;
@@ -1011,6 +1011,4 @@ public class Video360 : MonoBehaviour
     {
         StartCoroutine(PlayVideoAtIndexCoroutine(index));
     }
-
-    public void UpdateIndexOfVideotoPla
 }
