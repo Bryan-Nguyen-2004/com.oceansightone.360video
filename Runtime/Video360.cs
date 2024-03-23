@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using CodiceApp;
 using EasyTransition;
+using TMPro;
 using UnityEditor.EditorTools;
 using UnityEngine;
 using UnityEngine.Events;
@@ -233,6 +234,15 @@ public class Video360 : MonoBehaviour
     ]
     private bool doubleSidedGlobalIllumination = false;
 
+    [Header("Miscellaneous Settings")]
+    [
+        SerializeField,
+        Tooltip(
+            "The origin of the index value used in the PlayVideoAtIndex method. This will be overriden if an index is passed to the method."
+        )
+    ]
+    private Selectable indexValueOrigin = null;
+
     // Private variables
     private VideoPlayer curVideoPlayer = null;
     private VideoPlayer prevVideoPlayer = null;
@@ -246,7 +256,7 @@ public class Video360 : MonoBehaviour
     private int videoIndex = 0;
     private Coroutine play360VideosCoroutine; // stores the coroutine for playing the 360 videos to check if it's already running
     private int prevIndex = -1;
-    private bool prevCalled = false; // stores whether or not the prev coroutine was called
+    private bool prevVideoAlreadyAssigned = false; // stores whether or not the prev coroutine was called
     private AsyncOperation sceneLoad = null; // stores the scene load operation for the next scene
 
     private void ResetGlobalVariables()
@@ -426,6 +436,13 @@ public class Video360 : MonoBehaviour
             videoDone = true;
         };
 
+        // Load the next scene if one is assigned and its not already loaded
+        if (nextSceneName != null && sceneLoad == null)
+        {
+            sceneLoad = SceneManager.LoadSceneAsync(nextSceneName);
+            sceneLoad.allowSceneActivation = false;
+        }
+
         // Start the initial transition if one is assigned.
         if (initialTransition != null)
             TransitionManager.Instance().Transition(initialTransition, 0);
@@ -474,15 +491,6 @@ public class Video360 : MonoBehaviour
 
                     // Prepare the current video player to reduce lag between video transitions.
                     SetUpForNewVideo(curVideo);
-                }
-                else
-                {
-                    // Load the next scene if one is assigned and its not already loaded
-                    if (nextSceneName != null && sceneLoad == null)
-                    {
-                        sceneLoad = SceneManager.LoadSceneAsync(nextSceneName);
-                        sceneLoad.allowSceneActivation = false;
-                    }
                 }
 
                 // Wait for the previous video to finish playing and transition to hit the halfway point.
@@ -541,17 +549,17 @@ public class Video360 : MonoBehaviour
                 }
 
                 // if prev was called, prevvideo was already updated in the prev coroutine, so skip updating it here
-                if (!prevCalled)
+                if (!prevVideoAlreadyAssigned)
                     prevVideo = curVideo;
                 else
-                    prevCalled = false;
+                    prevVideoAlreadyAssigned = false;
 
                 // Update the previous video player and video.
                 prevVideoPlayer = curVideoPlayer;
                 videoDone = false;
                 prevIndex = videoIndex;
             }
-        } while (loop);
+        } while (loop && videoClips.Count > 0); // Only loop if there are videos to play and loop is true
 
         // wait for final transition to hit halfway point
         while (!transitionHalfway)
@@ -564,8 +572,11 @@ public class Video360 : MonoBehaviour
             sceneLoad.allowSceneActivation = true;
 
         // Release the previous video player's RenderTexture, stop the video, and trigger the OnVideoEnd event.
-        CleanUpVideoPlayer(prevVideoPlayer);
-        prevVideo.OnVideoEnd?.Invoke();
+        if (videoClips.Count > 0) // Only do this if videos actually played
+        {
+            CleanUpVideoPlayer(prevVideoPlayer);
+            prevVideo.OnVideoEnd?.Invoke();
+        }
         ResetGlobalVariables();
     }
 
@@ -584,27 +595,23 @@ public class Video360 : MonoBehaviour
         }
 
         // Validate video clips and start/end indices.
-        if (videoClips.Count == 0)
+        if (videoClips.Count != 0) // It's okay to have no video clips if you're just transitioning to the next scene
         {
-            Debug.LogError(
-                "Can't start playing 360 videos. No video clips are assigned to the Video360 script."
-            );
-            return;
-        }
-        if (startIndex < 0 || startIndex >= videoClips.Count)
-        {
-            Debug.LogError("Can't start playing 360 videos. Start index out of range.");
-            return;
-        }
-        if (endIndex == -1)
-        {
-            // If no end index is given, set it to the last video clip.
-            endIndex = videoClips.Count;
-        }
-        else if (endIndex < startIndex || endIndex >= videoClips.Count)
-        {
-            Debug.LogError("Can't start playing 360 videos. End index out of range.");
-            return;
+            if (startIndex < 0 || startIndex >= videoClips.Count)
+            {
+                Debug.LogError("Can't start playing 360 videos. Start index out of range.");
+                return;
+            }
+            if (endIndex == -1)
+            {
+                // If no end index is given, set it to the last video clip.
+                endIndex = videoClips.Count;
+            }
+            else if (endIndex < startIndex || endIndex >= videoClips.Count)
+            {
+                Debug.LogError("Can't start playing 360 videos. End index out of range.");
+                return;
+            }
         }
 
         // Make sure both video players are currently not playing.
@@ -776,7 +783,8 @@ public class Video360 : MonoBehaviour
         if (curVideoPlayer?.isPlaying == true || prevVideoPlayer?.isPlaying == true)
         {
             // Get the video player that is currently playing
-            VideoPlayer videoPlayer = curVideoPlayer?.isPlaying == true ? curVideoPlayer : prevVideoPlayer;
+            VideoPlayer videoPlayer =
+                curVideoPlayer?.isPlaying == true ? curVideoPlayer : prevVideoPlayer;
 
             // Load the next scene if one is assigned and its not already loaded
             if (nextSceneName != null && sceneLoad == null)
@@ -795,7 +803,7 @@ public class Video360 : MonoBehaviour
             // Load the next scene if one is assigned
             if (nextSceneName != null)
                 sceneLoad.allowSceneActivation = true;
-            
+
             CleanUpVideoPlayer(videoPlayer);
             this.StopAllCoroutines();
             ResetGlobalVariables();
@@ -835,6 +843,9 @@ public class Video360 : MonoBehaviour
     /// </summary>
     public void ResumeVideo()
     {
+        if (transitionManager.runningTransition)
+            return;
+        
         if (curVideoPlayer?.isPaused == true)
         {
             curVideoPlayer.Play();
@@ -854,14 +865,6 @@ public class Video360 : MonoBehaviour
     /// </summary>
     public void PlayNextVideo()
     {
-        if (videoClips.Count == 0)
-        {
-            Debug.LogError(
-                "Can't play next 360 video. No video clips are assigned to the Video360 script."
-            );
-            return;
-        }
-
         // if transition playing, return
         if (transitionManager.runningTransition)
             return;
@@ -886,34 +889,53 @@ public class Video360 : MonoBehaviour
             StartPlayback();
     }
 
-    /// <summary>
-    ///     DOESN'T WORK YET
-    /// </summary>
-    private IEnumerator PlayPrevVideoCoroutine()
+    private IEnumerator PlayVideoAtIndexCoroutine(int index)
     {
         if (videoClips.Count == 0)
         {
             Debug.LogError(
-                "Can't play previous 360 video. No video clips are assigned to the Video360 script."
+                "Can't play 360 video. No video clips are assigned to the Video360 script."
             );
             yield break;
         }
-
-        // If transition playing or prev alrady called, return
-        if (transitionManager.runningTransition || prevCalled)
+        if (index < -1 || index >= videoClips.Count)
+        {
+            Debug.LogError("Can't play 360 video. Index out of range.");
             yield break;
+        }
+
+        // If transition playing or function already called, return
+        if (transitionManager.runningTransition || prevVideoAlreadyAssigned)
+            yield break;
+
+        // If no index is given, use the indexValueOrigin to get the index
+        if (index == -1)
+        {
+            if (indexValueOrigin == null)
+            {
+                Debug.LogError("Can't play 360 video. No index is given and no indexValueOrigin is assigned.");
+                yield break;
+            }
+            
+            if (indexValueOrigin is TMP_Dropdown dropdown)
+            {
+                index = dropdown.value;
+            }
+            else if (indexValueOrigin is TMP_InputField inputField)
+            {
+                index = int.Parse(inputField.text);
+            }
+            else
+            {
+                Debug.LogError("The indexValueOrigin is not a Dropdown or InputField.");
+                yield break;
+            }
+        }
 
         // If video is currently playing
         if (!videoDone)
         {
-            // If first video is playing just stop it
-            if (prevIndex == 0)
-            {
-                StartCoroutine(StopVideoCoroutine());
-                yield break;
-            }
-
-            prevCalled = true;
+            prevVideoAlreadyAssigned = true;
 
             // if waiting on last video, manually switch active video player, bc it wasn't automatically done in the loop
             if (videoIndex == videoClips.Count)
@@ -929,7 +951,7 @@ public class Video360 : MonoBehaviour
             }
 
             // Prepare the video player to reduce lag between video transitions.
-            SetUpForNewVideo(videoClips[prevIndex - 1]);
+            SetUpForNewVideo(videoClips[index]);
 
             // Wait for the player to be prepared
             while (!curVideoPlayer.isPrepared)
@@ -937,16 +959,20 @@ public class Video360 : MonoBehaviour
                 yield return null;
             }
 
-            // Play the transition to the of the current video and wait for it to hit the halfway point.
+            // Play the transition of the current video and wait for it to hit the halfway point.
             TransitionManager.Instance().Transition(videoClips[prevIndex].transition, 0);
             while (!transitionHalfway)
             {
                 yield return null;
             }
 
-            videoIndex = prevIndex - 1; //  -1 bc for loop will increment it +1
-            prevVideo = videoClips[videoIndex];
+            videoIndex = index;
+            prevVideo = videoClips[index];
             videoDone = true;
+        }
+        else // else then just start playback at the index
+        {
+            StartPlayback(index, -1);
         }
     }
 
@@ -963,7 +989,11 @@ public class Video360 : MonoBehaviour
     /// </summary>
     public void PlayPrevVideo()
     {
-        StartCoroutine(PlayPrevVideoCoroutine());
+        // If first video is playing just stop it
+        if (prevIndex == 0)
+            StartCoroutine(StopVideoCoroutine());
+        else
+            StartCoroutine(PlayVideoAtIndexCoroutine(prevIndex - 1));
     }
 
     /// <summary>
@@ -971,6 +1001,16 @@ public class Video360 : MonoBehaviour
     /// </summary>
     public void StartPlaybackFromButton()
     {
-        StartPlayback(); // replace with your desired start and end indices
+        StartPlayback();
     }
+
+    /// <summary>
+    ///    Plays the video at the index specified in the argument or the index specified in the Index Value Origin if no argument is provided.
+    /// </summary>
+    public void PlayVideoAtIndex(int index = -1)
+    {
+        StartCoroutine(PlayVideoAtIndexCoroutine(index));
+    }
+
+    public void UpdateIndexOfVideotoPla
 }

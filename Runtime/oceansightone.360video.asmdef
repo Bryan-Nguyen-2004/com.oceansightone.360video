@@ -1,4 +1,17 @@
 {
     "name": "BeeAssembly",
-    "references": ["EasyTransitionAssembly"]
+    "rootNamespace": "",
+    "references": [
+        "GUID:99a632ffc304d4874af1657351764fba",
+        "GUID:6055be8ebefd69e48b49212b09b47b2f"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
 }
