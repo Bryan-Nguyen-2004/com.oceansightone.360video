@@ -259,170 +259,116 @@ public class Video360 : MonoBehaviour
     private bool prevVideoAlreadyAssigned = false; // stores whether or not the prev coroutine was called
     private AsyncOperation sceneLoad = null; // stores the scene load operation for the next scene
 
-    private void ResetGlobalVariables()
+    // -- Set Up Methods --
+    private void Awake()
     {
-        prevVideoPlayer = null;
-        curVideoPlayer = null;
-        curSkyboxMaterial = null;
-        originalSkyboxMaterial = null;
-        transitionHalfway = false;
-        prevVideo = null;
-        videoDone = true;
-        videoIndex = 0;
-        play360VideosCoroutine = null;
-        prevIndex = -1;
-    }
+        // Get the VideoPlayers if they are not assigned in the Inspector.
+        if (videoPlayer1 == null || videoPlayer2 == null)
+        {
+            VideoPlayer[] videoPlayers = GetComponents<VideoPlayer>();
 
-    private Material InitializeSkyboxMaterial()
-    {
-        // Create a new skybox material with the 'Skybox/Panoramic' shader and the specified settings.
-        Material skyboxMaterial = new Material(Shader.Find("Skybox/Panoramic"));
-        skyboxMaterial.name = "skyboxMaterial";
-        skyboxMaterial.SetFloat("_Layout", (int)layout3D);
-        //skyboxMaterial.SetColor("_Tint", tintColor);
-        //skyboxMaterial.SetFloat("_Exposure", exposure);
-        skyboxMaterial.SetFloat("_Rotation", rotation);
-        skyboxMaterial.EnableKeyword("_DOUBLE_SIDED_GLOBAL_ILLUMINATION");
-        skyboxMaterial.SetFloat(
-            "_DOUBLE_SIDED_GLOBAL_ILLUMINATION",
-            doubleSidedGlobalIllumination ? 1 : 0
-        );
+            if (videoPlayers.Length < 2)
+            {
+                Debug.LogError(
+                    "Two VideoPlayers are required to play 360 videos smoothly. Please assign two VideoPlayers to the Video360 script in the Inspector."
+                );
+                return;
+            }
 
-        return skyboxMaterial;
-    }
+            // Assign the first two video players found to videoPlayer1 and videoPlayer2.
+            if (videoPlayer1 == null)
+                videoPlayer1 = videoPlayers[0];
+            if (videoPlayer2 == null)
+                videoPlayer2 = videoPlayers[1];
+        }
 
-    private RenderTexture InitializeRenderTexture(VideoClip videoClip)
-    {
-        // Create a RenderTexture with the same dimensions as the video and a depth of 0.
-        RenderTexture curRenderTexture = new RenderTexture(
-            (int)videoClip.width,
-            (int)videoClip.height,
-            0
-        );
-        curRenderTexture.name = "360RenderTexture";
-        curRenderTexture.dimension = UnityEngine.Rendering.TextureDimension.Tex2D;
-        curRenderTexture.antiAliasing = (int)antiAliasingLevel;
+        // playOnAwake is set to false to prevent the videoPlayers from playing and incrementing their time on awake. which messes up the videoDone calculations.
+        videoPlayer1.playOnAwake = false;
+        videoPlayer2.playOnAwake = false;
 
-        // I'm not sure if these settings are necessary.
-        // curRenderTexture.filterMode = FilterMode.Bilinear;
-        // curRenderTexture.anisoLevel = 0;
-        // curRenderTexture.useMipMap = false;
-        // curRenderTexture.autoGenerateMips = false;
-        // curRenderTexture.wrapMode = TextureWrapMode.Clamp;
+        // waitForFirstFrame is set to true to ensure that the videoPlayers are prepared before playing.
+        videoPlayer1.waitForFirstFrame = true;
+        videoPlayer2.waitForFirstFrame = true;
 
-        curRenderTexture.Create();
+        // renderMode is set to RenderTexture to display the 360 video to the skybox.
+        videoPlayer1.renderMode = VideoRenderMode.RenderTexture;
+        videoPlayer2.renderMode = VideoRenderMode.RenderTexture;
 
-        return curRenderTexture;
-    }
+        // skipOnDrop is set to true to skip frames if the videoPlayers can't keep up with the video, so that audio and video stay in sync.
+        videoPlayer1.skipOnDrop = true;
+        videoPlayer2.skipOnDrop = true;
 
-    private void UpdateActiveVideoPlayer(VideoPlayer videoPlayer, VideoClipWithTransition videoClip)
-    {
-        // Sets the setting of the video player to the settings of the video clip.
-        curVideoPlayer.clip = videoClip.videoClip;
+        // audioOutputMode is set to Direct to send the audio directly to the audio listener, but this can be changed to AudioSource if you want to control the audio with an AudioSource.
+        videoPlayer1.audioOutputMode = VideoAudioOutputMode.Direct;
+        videoPlayer2.audioOutputMode = VideoAudioOutputMode.Direct;
 
-        curVideoPlayer.SetDirectAudioVolume(0, videoClip.volume / 100f);
-        curVideoPlayer.playbackSpeed = videoClip.playbackSpeed;
+        // Creates the first skybox material which will be used to display the 360 video.
+        if (skyboxMaterial1 == null)
+            skyboxMaterial1 = InitializeSkyboxMaterial();
+        else if (skyboxMaterial1.shader.name != "Skybox/Panoramic")
+        {
+            Debug.LogError(
+                "The shader of skybox material 1 is not set to 'Skybox/Panoramic'. Please assign a material with the 'Skybox/Panoramic' shader to the Video360 script in the Inspector."
+            );
+            return;
+        }
 
-        curVideoPlayer.time = videoClip.startTimeSecond;
-        if (videoClip.endTimeSecond == -1)
-            videoClip.endTimeSecond = (float)videoClip.videoClip.length;
-    }
+        // Creates the second skybox material which will be used to display the 360 video.
+        if (skyboxMaterial2 == null)
+            skyboxMaterial2 = InitializeSkyboxMaterial();
+        else if (skyboxMaterial2.shader.name != "Skybox/Panoramic")
+        {
+            Debug.LogError(
+                "The shader of skybox material 2 is not set to 'Skybox/Panoramic'. Please assign a material with the 'Skybox/Panoramic' shader to the Video360 script in the Inspector."
+            );
+            return;
+        }
 
-    private void SetUpForNewVideo(VideoClipWithTransition video)
-    {
-        // Create a RenderTexture for the current video.
-        RenderTexture curRenderTexture = InitializeRenderTexture(video.videoClip);
+        // Store the original skybox material.
+        originalSkyboxMaterial = RenderSettings.skybox;
 
-        // Update the active video player
-        UpdateActiveVideoPlayer(curVideoPlayer, video);
-
-        // Prepare the current video player to reduce lag between video transitions.
-        curVideoPlayer.Prepare();
-
-        // Set the current video player's RenderTexture and the skybox material's texture.
-        curVideoPlayer.targetTexture = curRenderTexture;
-        curSkyboxMaterial.SetTexture("_MainTex", curRenderTexture);
-    }
-
-    private void CleanUpVideoPlayer(VideoPlayer videoPlayer)
-    {
-        // Release the video player's RenderTexture and stop the video.
-        videoPlayer.targetTexture.Release();
-        videoPlayer.Stop();
-
-        // Reset the skybox material to the original skybox material.
-        RenderSettings.skybox = originalSkyboxMaterial;
-
-        // Set all GameObjects that were active before the videos started playing back to active.
+        // if setGameObjectsInactive is true, initialize the allActiveGameObjects list.
         if (setGameObjectsInactive)
-            ReactivateGameObjects();
+        {
+            allActiveGameObjects = new List<GameObject>();
+        }
 
-        prevVideoPlayer = null;
+        // Start playing the videos if playOnAwake is true.
+        if (playOnAwake)
+        {
+            StartPlayback();
+        }
     }
 
-    private bool IsChildOfAnyBlacklistedObjects(Transform child)
+    public void Start()
     {
-        // Check if the child is a child of any of the blacklisted GameObjects.
-        foreach (GameObject parent in blackListedGameObjects)
+        // Get Transformation Manager
+        transitionManager = TransitionManager.Instance();
+        if (transitionManager == null)
         {
-            if (child.IsChildOf(parent.transform))
-            {
-                return true;
-            }
+            Debug.LogError("Transition Manager is not found.");
+            return;
         }
 
-        // Check if the child is a child of any GameObjects with a blacklisted tag or name.
-        Transform current = child;
-        while (current != null)
+        // Set up events for the transition manager.
+        transitionManager.onTransitionEnd += () =>
         {
-            if (blacklistedTags.Contains(current.tag) || blackListedNames.Contains(current.name))
-            {
-                return true;
-            }
-            current = current.parent;
-        }
-
-        return false;
+            transitionHalfway = false;
+        };
+        transitionManager.onTransitionCutPointReached += () =>
+        {
+            transitionHalfway = true;
+        };
     }
 
-    private void DeactivateGameObjects()
-    {
-        // Set all GameObjects that are currently active to inactive, and store them in the allActiveGameObjects list.
-        GameObject[] allGameObjects = UnityEngine.Object.FindObjectsOfType<GameObject>();
-        foreach (GameObject go in allGameObjects)
-        {
-            // Check if the GameObject is active, not in the blacklisted GameObjects or tags, isnt the current GameObject, and isnt a child of any blacklisted GameObjects.
-            if (
-                go.activeInHierarchy
-                && !blackListedGameObjects.Contains(go)
-                && !blacklistedTags.Contains(go.tag)
-                && !blackListedNames.Contains(go.name)
-                && go != this.gameObject
-                && !(blackListChildrenToo && IsChildOfAnyBlacklistedObjects(go.transform)) // If blackListChildrenToo is true, check if the GameObject is a child of any blacklisted GameObjects.
-                && go.scene.name != "DontDestroyOnLoad" // This is to prevent the fade overlay from being set to inactive.
-            )
-            {
-                allActiveGameObjects.Add(go);
-                go.SetActive(false);
-            }
-        }
-    }
-
-    private void ReactivateGameObjects()
-    {
-        // Set all GameObjects that were active before the videos started playing back to active.
-        foreach (GameObject go in allActiveGameObjects)
-        {
-            go.SetActive(true);
-        }
-    }
+    // -- Coroutines --
 
     /// <summary>
     ///     Plays all the videos from the start index to the end index, and loops them if loop is true.
     /// </summary>
     /// <param name="startIndex"></param>
     /// <param name="endIndex"></param>
-    private IEnumerator Play360Videos(int startIndex, int endIndex)
+    private IEnumerator Play360VideosCoroutine(int startIndex, int endIndex)
     {
         bool objectsDeactivated = false;
 
@@ -580,315 +526,6 @@ public class Video360 : MonoBehaviour
         ResetGlobalVariables();
     }
 
-    /// <summary>
-    ///         Starts playing the 360 videos from the start index to the end index.
-    /// </summary>
-    /// <param name="startIndex">The index of the first video to play (inclusive).</param>
-    /// <param name="endIndex">The index of the last video to play (exclusive).</param>
-    public void StartPlayback(int startIndex = 0, int endIndex = -1)
-    {
-        // If the coroutine is already running, don't start it again
-        if (play360VideosCoroutine != null)
-        {
-            Debug.LogWarning("Can't start playing 360 videos. A video is already playing.");
-            return;
-        }
-
-        // Validate video clips and start/end indices.
-        if (videoClips.Count != 0) // It's okay to have no video clips if you're just transitioning to the next scene
-        {
-            if (startIndex < 0 || startIndex >= videoClips.Count)
-            {
-                Debug.LogError("Can't start playing 360 videos. Start index out of range.");
-                return;
-            }
-            if (endIndex == -1)
-            {
-                // If no end index is given, set it to the last video clip.
-                endIndex = videoClips.Count;
-            }
-            else if (endIndex < startIndex || endIndex >= videoClips.Count)
-            {
-                Debug.LogError("Can't start playing 360 videos. End index out of range.");
-                return;
-            }
-        }
-
-        // Make sure both video players are currently not playing.
-        videoPlayer1.Stop();
-        videoPlayer2.Stop();
-
-        curVideoPlayer = videoPlayer1;
-        curSkyboxMaterial = skyboxMaterial1;
-
-        // Start the PlayAllVideos coroutine.
-        play360VideosCoroutine = StartCoroutine(Play360Videos(startIndex, endIndex));
-    }
-
-    private void Awake()
-    {
-        // Get the VideoPlayers if they are not assigned in the Inspector.
-        if (videoPlayer1 == null || videoPlayer2 == null)
-        {
-            VideoPlayer[] videoPlayers = GetComponents<VideoPlayer>();
-
-            if (videoPlayers.Length < 2)
-            {
-                Debug.LogError(
-                    "Two VideoPlayers are required to play 360 videos smoothly. Please assign two VideoPlayers to the Video360 script in the Inspector."
-                );
-                return;
-            }
-
-            // Assign the first two video players found to videoPlayer1 and videoPlayer2.
-            if (videoPlayer1 == null)
-                videoPlayer1 = videoPlayers[0];
-            if (videoPlayer2 == null)
-                videoPlayer2 = videoPlayers[1];
-        }
-
-        // playOnAwake is set to false to prevent the videoPlayers from playing and incrementing their time on awake. which messes up the videoDone calculations.
-        videoPlayer1.playOnAwake = false;
-        videoPlayer2.playOnAwake = false;
-
-        // waitForFirstFrame is set to true to ensure that the videoPlayers are prepared before playing.
-        videoPlayer1.waitForFirstFrame = true;
-        videoPlayer2.waitForFirstFrame = true;
-
-        // renderMode is set to RenderTexture to display the 360 video to the skybox.
-        videoPlayer1.renderMode = VideoRenderMode.RenderTexture;
-        videoPlayer2.renderMode = VideoRenderMode.RenderTexture;
-
-        // skipOnDrop is set to true to skip frames if the videoPlayers can't keep up with the video, so that audio and video stay in sync.
-        videoPlayer1.skipOnDrop = true;
-        videoPlayer2.skipOnDrop = true;
-
-        // audioOutputMode is set to Direct to send the audio directly to the audio listener, but this can be changed to AudioSource if you want to control the audio with an AudioSource.
-        videoPlayer1.audioOutputMode = VideoAudioOutputMode.Direct;
-        videoPlayer2.audioOutputMode = VideoAudioOutputMode.Direct;
-
-        // Creates the first skybox material which will be used to display the 360 video.
-        if (skyboxMaterial1 == null)
-            skyboxMaterial1 = InitializeSkyboxMaterial();
-        else if (skyboxMaterial1.shader.name != "Skybox/Panoramic")
-        {
-            Debug.LogError(
-                "The shader of skybox material 1 is not set to 'Skybox/Panoramic'. Please assign a material with the 'Skybox/Panoramic' shader to the Video360 script in the Inspector."
-            );
-            return;
-        }
-
-        // Creates the second skybox material which will be used to display the 360 video.
-        if (skyboxMaterial2 == null)
-            skyboxMaterial2 = InitializeSkyboxMaterial();
-        else if (skyboxMaterial2.shader.name != "Skybox/Panoramic")
-        {
-            Debug.LogError(
-                "The shader of skybox material 2 is not set to 'Skybox/Panoramic'. Please assign a material with the 'Skybox/Panoramic' shader to the Video360 script in the Inspector."
-            );
-            return;
-        }
-
-        // Store the original skybox material.
-        originalSkyboxMaterial = RenderSettings.skybox;
-
-        // if setGameObjectsInactive is true, initialize the allActiveGameObjects list.
-        if (setGameObjectsInactive)
-        {
-            allActiveGameObjects = new List<GameObject>();
-        }
-
-        // Start playing the videos if playOnAwake is true.
-        if (playOnAwake)
-        {
-            StartPlayback();
-        }
-    }
-
-    public void Start()
-    {
-        // Get Transformation Manager
-        transitionManager = TransitionManager.Instance();
-        if (transitionManager == null)
-        {
-            Debug.LogError("Transition Manager is not found.");
-            return;
-        }
-
-        // Set up events for the transition manager.
-        transitionManager.onTransitionEnd += () =>
-        {
-            transitionHalfway = false;
-        };
-        transitionManager.onTransitionCutPointReached += () =>
-        {
-            transitionHalfway = true;
-        };
-    }
-
-    /// <summary>
-    ///     Plays a single 360 video from the videoClips list at specified index.
-    /// </summary>
-    /// <param name="index">The index of the video to be played from videoClips</param>
-    public void PlaySingleVideo(int index = 0)
-    {
-        if (index < 0 || index >= videoClips.Count)
-        {
-            Debug.LogError("Can't play single 360 Video. Index out of range.");
-            return;
-        }
-
-        // Stop the current video if one is playing.
-        if (curVideoPlayer.isPlaying)
-            curVideoPlayer.targetTexture.Release();
-        curVideoPlayer.Stop();
-
-        // Create a RenderTexture for the current video.
-        RenderTexture curRenderTexture = InitializeRenderTexture(videoClips[index].videoClip);
-
-        // Set the current video player's RenderTexture and the skybox material's texture.
-        curVideoPlayer.targetTexture = curRenderTexture;
-        curSkyboxMaterial.SetTexture("_MainTex", curRenderTexture);
-
-        UpdateActiveVideoPlayer(curVideoPlayer, videoClips[index]);
-
-        // Set an event to clean up when the video finishes.
-        curVideoPlayer.loopPointReached += vp =>
-        {
-            curVideoPlayer.targetTexture.Release();
-            curVideoPlayer.Stop();
-            RenderSettings.skybox = originalSkyboxMaterial;
-
-            // Set all GameObjects that were active before the video started playing back to active.
-            if (setGameObjectsInactive)
-                ReactivateGameObjects();
-        };
-
-        // Set all GameObjects that are currently active to inactive, and store them in the allActiveGameObjects list.
-        if (setGameObjectsInactive)
-            DeactivateGameObjects();
-
-        curVideoPlayer.Play();
-    }
-
-    /// <summary>
-    ///    Stops the 360 video currently playing, and breaks the loop.
-    /// </summary>
-    private IEnumerator StopVideoCoroutine()
-    {
-        if (transitionManager.runningTransition)
-            yield break;
-
-        // If a video is currently playing, stop it and clean up.
-        if (curVideoPlayer?.isPlaying == true || prevVideoPlayer?.isPlaying == true)
-        {
-            // Get the video player that is currently playing
-            VideoPlayer videoPlayer =
-                curVideoPlayer?.isPlaying == true ? curVideoPlayer : prevVideoPlayer;
-
-            // Load the next scene if one is assigned and its not already loaded
-            if (nextSceneName != null && sceneLoad == null)
-            {
-                sceneLoad = SceneManager.LoadSceneAsync(nextSceneName);
-                sceneLoad.allowSceneActivation = false;
-            }
-
-            // Play transition and wait for it to hit halfway mark
-            transitionManager.Transition(videoClips[prevIndex].transition, 0);
-            while (!transitionHalfway)
-            {
-                yield return null;
-            }
-
-            // Load the next scene if one is assigned
-            if (nextSceneName != null)
-                sceneLoad.allowSceneActivation = true;
-
-            CleanUpVideoPlayer(videoPlayer);
-            this.StopAllCoroutines();
-            ResetGlobalVariables();
-        }
-        else
-        {
-            Debug.LogError("Can't stop 360 video. No video is currently playing.");
-        }
-    }
-
-    /// <summary>
-    ///   Pauses the 360 video currently playing.
-    /// </summary>
-    public void PauseVideo()
-    {
-        // There is a bug that can occur when pausing a video while an EasyTransition is playing, causing the transition to repeat again and again or the game just crashes.
-        // If you remove this line and add a Debug.Log() inside the transitionManager.onTransitionCutPointReached, you can see it get called repeatedly
-        if (transitionManager.runningTransition)
-            return;
-
-        if (curVideoPlayer?.isPlaying == true)
-        {
-            curVideoPlayer.Pause();
-        }
-        else if (prevVideoPlayer?.isPlaying == true)
-        {
-            prevVideoPlayer.Pause();
-        }
-        else
-        {
-            Debug.LogError("Can't pause 360 video. No video is currently playing.");
-        }
-    }
-
-    /// <summary>
-    ///     Resumes the 360 video currently paused.
-    /// </summary>
-    public void ResumeVideo()
-    {
-        if (transitionManager.runningTransition)
-            return;
-
-        if (curVideoPlayer?.isPaused == true)
-        {
-            curVideoPlayer.Play();
-        }
-        else if (prevVideoPlayer?.isPaused == true)
-        {
-            prevVideoPlayer.Play();
-        }
-        else
-        {
-            Debug.LogError("Can't resume 360 video. No video is currently paused.");
-        }
-    }
-
-    /// <summary>
-    ///    Plays the next 360 video in the videoClips list.
-    /// </summary>
-    public void PlayNextVideo()
-    {
-        // if transition playing, return
-        if (transitionManager.runningTransition)
-            return;
-
-        // if videoDone is false, then a video is currently playing or is paused and we should just mark it done.
-        if (!videoDone)
-        {
-            // Transition to the next video
-            if (loop && videoIndex == 0)
-            {
-                if (initialTransition != null)
-                    transitionManager.Transition(initialTransition, 0);
-            }
-            else
-                transitionManager.Transition(videoClips[prevIndex].transition, 0);
-
-            videoDone = true;
-            transitionHalfway = false;
-        }
-        // else then just start playback
-        else
-            StartPlayback();
-    }
-
     private IEnumerator PlayVideoAtIndexCoroutine(int index = -1)
     {
         if (videoClips.Count == 0)
@@ -905,7 +542,11 @@ public class Video360 : MonoBehaviour
         }
 
         // If transition playing or function already called, return
-        if (transitionManager.runningTransition || prevVideoAlreadyAssigned)
+        if (
+            transitionManager.runningTransition
+            || prevVideoAlreadyAssigned
+            || IsAboutToCutTransition()
+        )
             yield break;
 
         // If no index is given, use the indexValueOrigin to get the index
@@ -981,13 +622,178 @@ public class Video360 : MonoBehaviour
     /// <summary>
     ///    Stops the 360 video currently playing, and breaks the loop.
     /// </summary>
+    private IEnumerator StopVideoCoroutine()
+    {
+        if (transitionManager.runningTransition)
+            yield break;
+
+        // If a video is currently playing, stop it and clean up.
+        if (curVideoPlayer?.isPlaying == true || prevVideoPlayer?.isPlaying == true)
+        {
+            // Get the video player that is currently playing
+            VideoPlayer videoPlayer =
+                curVideoPlayer?.isPlaying == true ? curVideoPlayer : prevVideoPlayer;
+
+            // Load the next scene if one is assigned and its not already loaded
+            if (nextSceneName != null && sceneLoad == null)
+            {
+                sceneLoad = SceneManager.LoadSceneAsync(nextSceneName);
+                sceneLoad.allowSceneActivation = false;
+            }
+
+            // Play transition and wait for it to hit halfway mark
+            transitionManager.Transition(videoClips[prevIndex].transition, 0);
+            while (!transitionHalfway)
+            {
+                yield return null;
+            }
+
+            // Load the next scene if one is assigned
+            if (nextSceneName != null)
+                sceneLoad.allowSceneActivation = true;
+
+            CleanUpVideoPlayer(videoPlayer);
+            this.StopAllCoroutines();
+            ResetGlobalVariables();
+        }
+        else
+        {
+            Debug.LogError("Can't stop 360 video. No video is currently playing.");
+        }
+    }
+
+    // -- Public Methods --
+
+    /// <summary>
+    ///         Starts playing the 360 videos from the start index to the end index.
+    /// </summary>
+    /// <param name="startIndex">The index of the first video to play (inclusive).</param>
+    /// <param name="endIndex">The index of the last video to play (exclusive).</param>
+    public void StartPlayback(int startIndex = 0, int endIndex = -1)
+    {
+        // If the coroutine is already running, don't start it again
+        if (play360VideosCoroutine != null)
+        {
+            Debug.LogWarning("Can't start playing 360 videos. A video is already playing.");
+            return;
+        }
+
+        // Validate video clips and start/end indices.
+        if (videoClips.Count != 0) // It's okay to have no video clips if you're just transitioning to the next scene
+        {
+            if (startIndex < 0 || startIndex >= videoClips.Count)
+            {
+                Debug.LogError("Can't start playing 360 videos. Start index out of range.");
+                return;
+            }
+            if (endIndex == -1)
+            {
+                // If no end index is given, set it to the last video clip.
+                endIndex = videoClips.Count;
+            }
+            else if (endIndex < startIndex || endIndex >= videoClips.Count)
+            {
+                Debug.LogError("Can't start playing 360 videos. End index out of range.");
+                return;
+            }
+        }
+
+        // Make sure both video players are currently not playing.
+        videoPlayer1.Stop();
+        videoPlayer2.Stop();
+
+        curVideoPlayer = videoPlayer1;
+        curSkyboxMaterial = skyboxMaterial1;
+
+        // Start the PlayAllVideos coroutine.
+        play360VideosCoroutine = StartCoroutine(Play360VideosCoroutine(startIndex, endIndex));
+    }
+
+    /// <summary>
+    ///    Plays the next 360 video in the videoClips list.
+    /// </summary>
+    public void PlayNextVideo()
+    {
+        // if transition playing, return
+        if (transitionManager.runningTransition || IsAboutToCutTransition())
+            return;
+
+        // if videoDone is false, then a video is currently playing or is paused and we should just mark it done.
+        if (!videoDone)
+        {
+            // Transition to the next video
+            if (loop && videoIndex == 0)
+            {
+                if (initialTransition != null)
+                    transitionManager.Transition(initialTransition, 0);
+            }
+            else
+                transitionManager.Transition(videoClips[prevIndex].transition, 0);
+
+            videoDone = true;
+            transitionHalfway = false;
+        }
+        // else then just start playback
+        else
+            StartPlayback();
+    }
+
+    /// <summary>
+    ///   Pauses the 360 video currently playing.
+    /// </summary>
+    public void PauseVideo()
+    {
+        // There is a bug that can occur when pausing a video while an EasyTransition is playing, causing the transition to repeat again and again or the game just crashes.
+        // If you remove this line and add a Debug.Log() inside the transitionManager.onTransitionCutPointReached, you can see it get called repeatedly
+        if (transitionManager.runningTransition || IsAboutToCutTransition())
+            return;
+
+        if (curVideoPlayer?.isPlaying == true)
+        {
+            curVideoPlayer.Pause();
+        }
+        else if (prevVideoPlayer?.isPlaying == true)
+        {
+            prevVideoPlayer.Pause();
+        }
+        else
+        {
+            Debug.LogError("Can't pause 360 video. No video is currently playing.");
+        }
+    }
+
+    /// <summary>
+    ///     Resumes the 360 video currently paused.
+    /// </summary>
+    public void ResumeVideo()
+    {
+        if (transitionManager.runningTransition)
+            return;
+
+        if (curVideoPlayer?.isPaused == true)
+        {
+            curVideoPlayer.Play();
+        }
+        else if (prevVideoPlayer?.isPaused == true)
+        {
+            prevVideoPlayer.Play();
+        }
+        else
+        {
+            Debug.LogError("Can't resume 360 video. No video is currently paused.");
+        }
+    }
+
+    /// <summary>
+    ///    Stops the 360 video currently playing, and breaks the loop.
+    /// </summary>
     public void StopVideo()
     {
         StartCoroutine(StopVideoCoroutine());
     }
 
     /// <summary>
-    ///     Plays the previous 360 video in the videoClips list.
+    ///     Plays the previous 360 video in the videoClips list, or stops playback if the first video is playing.
     /// </summary>
     public void PlayPrevVideo()
     {
@@ -1009,6 +815,7 @@ public class Video360 : MonoBehaviour
     /// <summary>
     ///    Plays the video at the index specified in the argument or the index specified in the Index Value Origin if no argument is provided.
     /// </summary>
+    /// <param name="index">The index of the video to play.</param>
     public void PlayVideoAtIndex(int index = -1)
     {
         StartCoroutine(PlayVideoAtIndexCoroutine(index));
@@ -1020,5 +827,193 @@ public class Video360 : MonoBehaviour
     public void PlayVideoAtIndexFromButton()
     {
         StartCoroutine(PlayVideoAtIndexCoroutine());
+    }
+
+    // -- Helper Methods --
+    private void ResetGlobalVariables()
+    {
+        prevVideoPlayer = null;
+        curVideoPlayer = null;
+        curSkyboxMaterial = null;
+        originalSkyboxMaterial = null;
+        transitionHalfway = false;
+        prevVideo = null;
+        videoDone = true;
+        videoIndex = 0;
+        play360VideosCoroutine = null;
+        prevIndex = -1;
+    }
+
+    private Material InitializeSkyboxMaterial()
+    {
+        // Create a new skybox material with the 'Skybox/Panoramic' shader and the specified settings.
+        Material skyboxMaterial = new Material(Shader.Find("Skybox/Panoramic"));
+        skyboxMaterial.name = "skyboxMaterial";
+        skyboxMaterial.SetFloat("_Layout", (int)layout3D);
+        //skyboxMaterial.SetColor("_Tint", tintColor);
+        //skyboxMaterial.SetFloat("_Exposure", exposure);
+        skyboxMaterial.SetFloat("_Rotation", rotation);
+        skyboxMaterial.EnableKeyword("_DOUBLE_SIDED_GLOBAL_ILLUMINATION");
+        skyboxMaterial.SetFloat(
+            "_DOUBLE_SIDED_GLOBAL_ILLUMINATION",
+            doubleSidedGlobalIllumination ? 1 : 0
+        );
+
+        return skyboxMaterial;
+    }
+
+    private RenderTexture InitializeRenderTexture(VideoClip videoClip)
+    {
+        // Create a RenderTexture with the same dimensions as the video and a depth of 0.
+        RenderTexture curRenderTexture = new RenderTexture(
+            (int)videoClip.width,
+            (int)videoClip.height,
+            0
+        );
+        curRenderTexture.name = "360RenderTexture";
+        curRenderTexture.dimension = UnityEngine.Rendering.TextureDimension.Tex2D;
+        curRenderTexture.antiAliasing = (int)antiAliasingLevel;
+
+        // I'm not sure if these settings are necessary.
+        // curRenderTexture.filterMode = FilterMode.Bilinear;
+        // curRenderTexture.anisoLevel = 0;
+        // curRenderTexture.useMipMap = false;
+        // curRenderTexture.autoGenerateMips = false;
+        // curRenderTexture.wrapMode = TextureWrapMode.Clamp;
+
+        curRenderTexture.Create();
+
+        return curRenderTexture;
+    }
+
+    private void UpdateActiveVideoPlayer(VideoPlayer videoPlayer, VideoClipWithTransition videoClip)
+    {
+        // Sets the setting of the video player to the settings of the video clip.
+        curVideoPlayer.clip = videoClip.videoClip;
+
+        curVideoPlayer.SetDirectAudioVolume(0, videoClip.volume / 100f);
+        curVideoPlayer.playbackSpeed = videoClip.playbackSpeed;
+
+        curVideoPlayer.time = videoClip.startTimeSecond;
+        if (videoClip.endTimeSecond == -1)
+            videoClip.endTimeSecond = (float)videoClip.videoClip.length;
+    }
+
+    private void SetUpForNewVideo(VideoClipWithTransition video)
+    {
+        // Create a RenderTexture for the current video.
+        RenderTexture curRenderTexture = InitializeRenderTexture(video.videoClip);
+
+        // Update the active video player
+        UpdateActiveVideoPlayer(curVideoPlayer, video);
+
+        // Prepare the current video player to reduce lag between video transitions.
+        curVideoPlayer.Prepare();
+
+        // Set the current video player's RenderTexture and the skybox material's texture.
+        curVideoPlayer.targetTexture = curRenderTexture;
+        curSkyboxMaterial.SetTexture("_MainTex", curRenderTexture);
+    }
+
+    private void CleanUpVideoPlayer(VideoPlayer videoPlayer)
+    {
+        // Release the video player's RenderTexture and stop the video.
+        videoPlayer.targetTexture.Release();
+        videoPlayer.Stop();
+
+        // Reset the skybox material to the original skybox material.
+        RenderSettings.skybox = originalSkyboxMaterial;
+
+        // Set all GameObjects that were active before the videos started playing back to active.
+        if (setGameObjectsInactive)
+            ReactivateGameObjects();
+
+        prevVideoPlayer = null;
+    }
+
+    private bool IsChildOfAnyBlacklistedObjects(Transform child)
+    {
+        // Check if the child is a child of any of the blacklisted GameObjects.
+        foreach (GameObject parent in blackListedGameObjects)
+        {
+            if (child.IsChildOf(parent.transform))
+            {
+                return true;
+            }
+        }
+
+        // Check if the child is a child of any GameObjects with a blacklisted tag or name.
+        Transform current = child;
+        while (current != null)
+        {
+            if (blacklistedTags.Contains(current.tag) || blackListedNames.Contains(current.name))
+            {
+                return true;
+            }
+            current = current.parent;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    ///    Checks if the current video player is about to transition to the next video. This is used to check if an operation has enough time to perform before the current video cuts to the next video.
+    /// </summary>
+    /// <returns></returns>
+    private bool IsAboutToCutTransition()
+    {
+        VideoPlayer activeVideoPlayer = null;
+        float transitionTime = 0.5f; // transition time / 2 (this is the time when the transition should be halfway done)
+
+        if (curVideoPlayer?.isPlaying == true)
+        {
+            activeVideoPlayer = curVideoPlayer;
+        }
+        else if (prevVideoPlayer?.isPlaying == true)
+        {
+            activeVideoPlayer = prevVideoPlayer;
+        }
+        else
+        {
+            return false; // if no video is playing, return false
+        }
+
+        if (prevVideo.transition != null)
+            return false; // if the video doesn't have a cut transition, return false
+
+        // return true if active video player time is more than the end time minus the transition time
+        return activeVideoPlayer.time >= prevVideo.endTimeSecond - transitionTime;
+    }
+
+    private void DeactivateGameObjects()
+    {
+        // Set all GameObjects that are currently active to inactive, and store them in the allActiveGameObjects list.
+        GameObject[] allGameObjects = UnityEngine.Object.FindObjectsOfType<GameObject>();
+        foreach (GameObject go in allGameObjects)
+        {
+            // Check if the GameObject is active, not in the blacklisted GameObjects or tags, isnt the current GameObject, and isnt a child of any blacklisted GameObjects.
+            if (
+                go.activeInHierarchy
+                && !blackListedGameObjects.Contains(go)
+                && !blacklistedTags.Contains(go.tag)
+                && !blackListedNames.Contains(go.name)
+                && go != this.gameObject
+                && !(blackListChildrenToo && IsChildOfAnyBlacklistedObjects(go.transform)) // If blackListChildrenToo is true, check if the GameObject is a child of any blacklisted GameObjects.
+                && go.scene.name != "DontDestroyOnLoad" // This is to prevent the fade overlay from being set to inactive.
+            )
+            {
+                allActiveGameObjects.Add(go);
+                go.SetActive(false);
+            }
+        }
+    }
+
+    private void ReactivateGameObjects()
+    {
+        // Set all GameObjects that were active before the videos started playing back to active.
+        foreach (GameObject go in allActiveGameObjects)
+        {
+            go.SetActive(true);
+        }
     }
 }
