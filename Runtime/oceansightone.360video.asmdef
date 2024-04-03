@@ -2,7 +2,7 @@
     "name": "BeeAssembly",
     "rootNamespace": "",
     "references": [
-        "GUID:99a632ffc304d4874af1657351764fba",
+        "EasyTransitionAssembly",
         "GUID:6055be8ebefd69e48b49212b09b47b2f"
     ],
     "includePlatforms": [],
