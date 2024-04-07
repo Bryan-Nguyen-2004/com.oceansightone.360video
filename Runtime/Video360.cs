@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -258,6 +259,7 @@ public class Video360 : MonoBehaviour
     private int prevIndex = -1;
     private bool prevVideoAlreadyAssigned = false; // stores whether or not the prev coroutine was called
     private AsyncOperation sceneLoad = null; // stores the scene load operation for the next scene
+    private Canvas canvas; // the canvas the transition is displayed on
 
     // -- Set Up Methods --
     private void Awake()
@@ -358,6 +360,7 @@ public class Video360 : MonoBehaviour
         transitionManager.onTransitionCutPointReached += () =>
         {
             transitionHalfway = true;
+
         };
     }
 
@@ -391,9 +394,13 @@ public class Video360 : MonoBehaviour
 
         // Start the initial transition if one is assigned.
         if (initialTransition != null)
-            TransitionManager.Instance().Transition(initialTransition, 0);
+        {
+            transitionManager.Transition(initialTransition, 0);
+        }
         else
+        {
             transitionHalfway = true; // Just cut so set transitionHalfway to true
+        }
 
         // Play the videos in a loop if loop is true else play them once.
         do
@@ -446,12 +453,13 @@ public class Video360 : MonoBehaviour
                     {
                         // Start the transition to the next video when the previous video is about to end (this is timed so that when the video ends, the halfway point of the transition should trigger).
                         if (
-                            prevVideoPlayer.time
+                            prevVideo.transition != null
+                            && prevVideoPlayer.time
                                 >= prevVideo.endTimeSecond - prevVideo.transition.transitionTime
                             && !transitionManager.runningTransition
                         )
                         {
-                            TransitionManager.Instance().Transition(prevVideo.transition, 0);
+                            transitionManager.Transition(prevVideo.transition, 0);
                         }
 
                         // If the previous video has no transition, set transitionHalfway to true.
@@ -462,6 +470,18 @@ public class Video360 : MonoBehaviour
                         prevVideo.OnVideoStay?.Invoke();
                         yield return null;
                     }
+                }
+
+                // if there is a transition, wait for the transition to start and get the canvas
+                if ((videoIndex == 0 && initialTransition != null) || (videoIndex != 0 && prevVideo.transition != null))
+                {
+                    GameObject canvasGO = FindGameObjectInScene("TransitionCanvas");
+                    while (canvasGO == null)
+                    {
+                        canvasGO = FindGameObjectInScene("TransitionCanvas");
+                        yield return null;
+                    }
+                    canvas = canvasGO.GetComponent<Canvas>();
                 }
 
                 // if the prevvideo was the last one, break the loop
@@ -507,16 +527,43 @@ public class Video360 : MonoBehaviour
             }
         } while (loop && videoClips.Count > 0); // Only loop if there are videos to play and loop is true
 
+        // Get the canvas in the case that there is an initial transition and no videos
+        if (initialTransition != null && videoClips.Count == 0)
+        {
+            // Wait for the transition to start and get the canvas
+            GameObject canvasGO = FindGameObjectInScene("TransitionCanvas");
+            while (canvasGO == null)
+            {
+                canvasGO = FindGameObjectInScene("TransitionCanvas");
+                yield return null;
+            }
+            canvas = canvasGO.GetComponent<Canvas>();
+        }
+
+        // Used to prompt the transition to detach the canvas from the canvas right at the halfway point to fix an issue with switching scenes
+        if (nextSceneName != null && canvas != null)
+            transitionManager.switchingScenes = true;
+
         // wait for final transition to hit halfway point
         while (!transitionHalfway)
         {
             yield return null;
         }
 
-        // activate the loaded scene
         if (nextSceneName != null)
-            sceneLoad.allowSceneActivation = true;
+        {
+            if (canvas != null)
+            {
+                // Make the canvas not destroy on load
+                canvas.transform.SetParent(null);
+                DontDestroyOnLoad(canvas.gameObject);
+            }
 
+            // Activate the loaded scene
+            SceneManager.sceneLoaded += ReattachCanvasToCamera;
+            sceneLoad.allowSceneActivation = true;
+        }
+        
         // Release the previous video player's RenderTexture, stop the video, and trigger the OnVideoEnd event.
         if (videoClips.Count > 0) // Only do this if videos actually played
         {
@@ -603,7 +650,7 @@ public class Video360 : MonoBehaviour
             }
 
             // Play the transition of the current video and wait for it to hit the halfway point.
-            TransitionManager.Instance().Transition(videoClips[prevIndex].transition, 0);
+            transitionManager.Transition(videoClips[prevIndex].transition, 0);
             while (!transitionHalfway)
             {
                 yield return null;
@@ -756,10 +803,6 @@ public class Video360 : MonoBehaviour
         {
             prevVideoPlayer.Pause();
         }
-        else
-        {
-            Debug.LogError("Can't pause 360 video. No video is currently playing.");
-        }
     }
 
     /// <summary>
@@ -777,10 +820,6 @@ public class Video360 : MonoBehaviour
         else if (prevVideoPlayer?.isPaused == true)
         {
             prevVideoPlayer.Play();
-        }
-        else
-        {
-            Debug.LogError("Can't resume 360 video. No video is currently paused.");
         }
     }
 
@@ -1015,5 +1054,66 @@ public class Video360 : MonoBehaviour
         {
             go.SetActive(true);
         }
+    }
+
+    private void ReattachCanvasToCamera(Scene scene, LoadSceneMode mode)
+    {
+        // Unsubscribe from the sceneLoaded event
+        SceneManager.sceneLoaded -= ReattachCanvasToCamera;
+
+        // Find the camera in the scene tagged as "MainCamera"
+        Camera VR_Camera = Camera.main;
+
+        // Make the canvas a child of the VR camera
+        canvas.transform.SetParent(VR_Camera.transform);
+
+        // Position the canvas in front of the VR camera
+        canvas.transform.localPosition = VR_Camera.transform.forward * .015f;
+
+        // Ensure the canvas faces the same direction as the camera
+        canvas.transform.localRotation = Quaternion.identity;
+
+        // Set the planeDistance to a small value to render the canvas in front of other objects
+        canvas.planeDistance = 0.015f;
+
+        // Ensure the canvas faces the camera
+        canvas.transform.LookAt(VR_Camera.transform);
+    }
+
+    private static GameObject FindGameObjectInScene(string name)
+    {
+        foreach (GameObject root in SceneManager.GetActiveScene().GetRootGameObjects())
+        {
+            GameObject result = FindGameObjectInChildren(root, name);
+            if (result != null)
+            {
+                return result;
+            }
+        }
+
+        // If the GameObject was not found in the scene, return null
+        return null;
+    }
+
+    private static GameObject FindGameObjectInChildren(GameObject parent, string name)
+    {
+        // Check if the current GameObject is the one we're looking for
+        if (parent.name == name)
+        {
+            return parent;
+        }
+
+        // Otherwise, search the children
+        foreach (Transform child in parent.transform)
+        {
+            GameObject result = FindGameObjectInChildren(child.gameObject, name);
+            if (result != null)
+            {
+                return result;
+            }
+        }
+
+        // If the GameObject was not found in this branch of the hierarchy, return null
+        return null;
     }
 }

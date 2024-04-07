@@ -19,6 +19,9 @@ namespace EasyTransition
 
         private static TransitionManager instance;
 
+        /// To fix bug with switching scenes 
+        public bool switchingScenes = false;  
+
         private void Awake()
         {
             instance = this;
