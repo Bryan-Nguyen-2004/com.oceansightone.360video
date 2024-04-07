@@ -1,11 +1,13 @@
 {
-    "name": "com.oceansightone.360video",
-    "version": "1.0.0",
-    "displayName": "360 Video",
-    "description": "Allows for the importing and playback of 360 degree videos, while implementing various transitions and effects.",
-    "author": {
-      "name": "Ocean Sight One",
-      "email": "oceansightone@office.calpoly.edu"
-    }
+  "name": "com.oceansightone.360video",
+  "version": "1.0.0",
+  "displayName": "360 Video",
+  "description": "Allows for the playback of 360 degree videos with transitions.",
+  "author": {
+    "name": "Ocean Sight One",
+    "email": "oceansightone@office.calpoly.edu"
+  },
+  "dependencies": {
+    "com.unity.xr.interaction.toolkit": "2.5.2"
   }
-  
+}
