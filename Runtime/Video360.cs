@@ -2,10 +2,8 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
-using CodiceApp;
 using EasyTransition;
 using TMPro;
-using UnityEditor.EditorTools;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.SceneManagement;
@@ -53,7 +51,7 @@ public class VideoClipWithTransition : ISerializationCallbackReceiver
     [Tooltip("The speed at which the video will be played.")]
     [Range(0.1f, 10f)]
     public float playbackSpeed;
-
+    
     [Tooltip("The events to trigger when the video starts playing.")]
     public UnityEvent OnVideoStart;
 
@@ -552,13 +550,6 @@ public class Video360 : MonoBehaviour
 
         if (nextSceneName != null)
         {
-            if (canvas != null)
-            {
-                // Make the canvas not destroy on load
-                canvas.transform.SetParent(null);
-                DontDestroyOnLoad(canvas.gameObject);
-            }
-
             // Activate the loaded scene
             SceneManager.sceneLoaded += ReattachCanvasToCamera;
             sceneLoad.allowSceneActivation = true;
