@@ -1,15 +1,16 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.SceneManagement;
 using UnityEngine.Events;
+using UnityEngine.SceneManagement;
+using Video360;
 
 namespace EasyTransition
 {
-
     public class TransitionManager : MonoBehaviour
-    {        
-        [SerializeField] private GameObject transitionTemplate;
+    {
+        [SerializeField]
+        private GameObject transitionTemplate;
 
         public bool runningTransition;
 
@@ -19,12 +20,13 @@ namespace EasyTransition
 
         private static TransitionManager instance;
 
-        /// To fix bug with switching scenes 
-        public bool switchingScenes = false;  
+        /// To fix bug with switching scenes
+        public bool switchingScenes = false;
 
         private void Awake()
         {
             instance = this;
+            Debug.Log(transitionTemplate);
         }
 
         public static TransitionManager Instance()
@@ -40,120 +42,31 @@ namespace EasyTransition
         /// </summary>
         /// <param name="transition">The settings of the transition you want to use.</param>
         /// <param name="startDelay">The delay before the transition starts.</param>
-        public void Transition(TransitionSettings transition, float startDelay)
+        public void Transition(EasyTransitionInstance instance, float startDelay)
         {
-            if (transition == null || runningTransition)
+            if (instance == null || instance.Transition == null || runningTransition)
             {
                 Debug.LogError("You have to assign a transition.");
                 return;
             }
 
-            runningTransition = true;
-            StartCoroutine(Timer(startDelay, transition));
-        }
-
-        /// <summary>
-        /// Loads the new Scene with a transition.
-        /// </summary>
-        /// <param name="sceneName">The name of the scene you want to load.</param>
-        /// <param name="transition">The settings of the transition you want to use to load you new scene.</param>
-        /// <param name="startDelay">The delay before the transition starts.</param>
-        public void Transition(string sceneName, TransitionSettings transition, float startDelay)
-        {
-            if (transition == null || runningTransition)
-            {
-                Debug.LogError("You have to assing a transition.");
-                return;
-            }
+            /// Added this to comply with interface
+            instance.IsTransitioning = true;
 
             runningTransition = true;
-            StartCoroutine(Timer(sceneName, startDelay, transition));
+            StartCoroutine(Timer(startDelay, instance));
         }
 
-        /// <summary>
-        /// Loads the new Scene with a transition.
-        /// </summary>
-        /// <param name="sceneIndex">The index of the scene you want to load.</param>
-        /// <param name="transition">The settings of the transition you want to use to load you new scene.</param>
-        /// <param name="startDelay">The delay before the transition starts.</param>
-        public void Transition(int sceneIndex, TransitionSettings transition, float startDelay)
+        IEnumerator Timer(float delay, EasyTransitionInstance instance)
         {
-            if (transition == null || runningTransition)
-            {
-                Debug.LogError("You have to assing a transition.");
-                return;
-            }
+            TransitionSettings transitionSettings = instance.Transition;
 
-            runningTransition = true;
-            StartCoroutine(Timer(sceneIndex, startDelay, transition));
-        }
-
-        /// <summary>
-        /// Gets the index of a scene from its name.
-        /// </summary>
-        /// <param name="sceneName">The name of the scene you want to get the index of.</param>
-        int GetSceneIndex(string sceneName)
-        {
-            return SceneManager.GetSceneByName(sceneName).buildIndex;
-        }
-
-        IEnumerator Timer(string sceneName, float startDelay, TransitionSettings transitionSettings)
-        {
-            yield return new WaitForSecondsRealtime(startDelay);
-
-            onTransitionBegin?.Invoke();
-
-            GameObject template = Instantiate(transitionTemplate) as GameObject;
-            template.GetComponent<Transition>().transitionSettings = transitionSettings;
-
-            float transitionTime = transitionSettings.transitionTime;
-            if (transitionSettings.autoAdjustTransitionTime)
-                transitionTime = transitionTime / transitionSettings.transitionSpeed;
-
-            yield return new WaitForSecondsRealtime(transitionTime);
-
-            onTransitionCutPointReached?.Invoke();
-
-
-            SceneManager.LoadScene(sceneName);
-
-            yield return new WaitForSecondsRealtime(transitionSettings.destroyTime);
-
-            onTransitionEnd?.Invoke();
-        }
-
-        IEnumerator Timer(int sceneIndex, float startDelay, TransitionSettings transitionSettings)
-        {
-            yield return new WaitForSecondsRealtime(startDelay);
-
-            onTransitionBegin?.Invoke();
-
-            GameObject template = Instantiate(transitionTemplate) as GameObject;
-            template.GetComponent<Transition>().transitionSettings = transitionSettings;
-
-            float transitionTime = transitionSettings.transitionTime;
-            if (transitionSettings.autoAdjustTransitionTime)
-                transitionTime = transitionTime / transitionSettings.transitionSpeed;
-
-            yield return new WaitForSecondsRealtime(transitionTime);
-
-            onTransitionCutPointReached?.Invoke();
-
-            SceneManager.LoadScene(sceneIndex);
-
-            yield return new WaitForSecondsRealtime(transitionSettings.destroyTime);
-
-            onTransitionEnd?.Invoke();
-        }
-
-        IEnumerator Timer(float delay, TransitionSettings transitionSettings)
-        {
             yield return new WaitForSecondsRealtime(delay);
 
             onTransitionBegin?.Invoke();
 
             GameObject template = Instantiate(transitionTemplate) as GameObject;
-            template.GetComponent<Transition>().transitionSettings = transitionSettings;
+            template.GetComponent<EZTransition>().transitionSettings = transitionSettings;
 
             float transitionTime = transitionSettings.transitionTime;
             if (transitionSettings.autoAdjustTransitionTime)
@@ -161,11 +74,19 @@ namespace EasyTransition
 
             yield return new WaitForSecondsRealtime(transitionTime);
 
+            /// Added this to comply with interface
+            instance.CutPointReached = true;
+
             onTransitionCutPointReached?.Invoke();
 
-            template.GetComponent<Transition>().OnSceneLoad(SceneManager.GetActiveScene(), LoadSceneMode.Single);
+            template
+                .GetComponent<EZTransition>()
+                .OnSceneLoad(SceneManager.GetActiveScene(), LoadSceneMode.Single);
 
             yield return new WaitForSecondsRealtime(transitionSettings.destroyTime);
+
+            /// Added this to comply with interface
+            instance.IsTransitioning = false;
 
             onTransitionEnd?.Invoke();
 
@@ -179,11 +100,12 @@ namespace EasyTransition
                 //Check for multiple instances of the Transition Manager component
                 var managerCount = GameObject.FindObjectsOfType<TransitionManager>(true).Length;
                 if (managerCount > 1)
-                    Debug.LogError($"There are {managerCount.ToString()} Transition Managers in your scene. Please ensure there is only one Transition Manager in your scene or overlapping transitions may occur.");
-            
+                    Debug.LogError(
+                        $"There are {managerCount.ToString()} Transition Managers in your scene. Please ensure there is only one Transition Manager in your scene or overlapping transitions may occur."
+                    );
+
                 yield return new WaitForSecondsRealtime(1f);
             }
         }
     }
-
 }

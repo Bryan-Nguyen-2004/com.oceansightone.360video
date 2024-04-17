@@ -5,6 +5,7 @@ using System.Linq;
 using EasyTransition;
 using TMPro;
 using UnityEngine;
+using UnityEngine.Events;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 using UnityEngine.Video;
@@ -16,7 +17,7 @@ namespace Video360
         RequireComponent(typeof(TransitionManager)),
         DisallowMultipleComponent
     ]
-    public class Video360 : MonoBehaviour
+    public class Video360Manager : MonoBehaviour
     {
         [Tooltip("The list of 360 video clips to play.")]
         public List<VideoClipWithTransition> videoClips = new List<VideoClipWithTransition>();
@@ -812,8 +813,6 @@ namespace Video360
             Material skyboxMaterial = new Material(Shader.Find("Skybox/Panoramic"));
             skyboxMaterial.name = "skyboxMaterial";
             skyboxMaterial.SetFloat("_Layout", (int)layout3D);
-            //skyboxMaterial.SetColor("_Tint", tintColor);
-            //skyboxMaterial.SetFloat("_Exposure", exposure);
             skyboxMaterial.SetFloat("_Rotation", rotation);
             skyboxMaterial.EnableKeyword("_DOUBLE_SIDED_GLOBAL_ILLUMINATION");
             skyboxMaterial.SetFloat(
