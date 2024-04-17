@@ -12,22 +12,33 @@ using UnityEngine.Video;
 
 namespace Video360
 {
-    public readonly struct PlaybackState
+    public struct PlaybackState
     {
-        public RenderTexture RenderTexture { get; }
+        public VideoPlayer VideoPlayer { get; }
         public Material Material { get; }
+        public RenderTexture RenderTexture { get; private set; }
 
-        public PlaybackState(RenderTexture renderTexture, Material material)
+        public PlaybackState(VideoPlayer videoPlayer, Material material)
         {
-            RenderTexture = renderTexture;
+            VideoPlayer = videoPlayer;
             Material = material;
+            RenderTexture = null;
         }
     }
 
     public class Video360RenderManager
     {
-        public Video360RenderManager() {}
-        
+        private PlaybackState _playbackStateA;
+        private PlaybackState _playbackStateB;
+        private PlaybackState _currentPlaybackState;
+
+        public Video360RenderManager(PlaybackState playbackStateA, PlaybackState playbackStateB) {
+            _playbackStateA = new PlaybackState(null, null);
+            _playbackStateB = new PlaybackState(null, null);
+            _currentPlaybackState = _playbackStateA;
+
+        }
+
         private Material InitializeSkyboxMaterial(Layout3D layout3D, float rotation, bool doubleSidedGlobalIllumination)
         {
             // Create a new skybox material with the 'Skybox/Panoramic' shader and the specified settings.
